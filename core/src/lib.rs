@@ -8,5 +8,6 @@ pub mod error;
 pub mod naming;
 pub mod process;
 pub mod scan;
+pub mod undo;
 
 pub use error::{CoreError, Result};
