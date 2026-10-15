@@ -15,6 +15,26 @@ use tauri::State;
 #[derive(Default)]
 struct AppState {
     cancel: Arc<AtomicBool>,
+    running: Arc<AtomicBool>,
+}
+
+/// Held for the whole conversion; a second `convert` while one runs is refused.
+struct RunGuard(Arc<AtomicBool>);
+
+impl RunGuard {
+    fn acquire(flag: &Arc<AtomicBool>) -> Option<RunGuard> {
+        if flag.swap(true, Ordering::SeqCst) {
+            None
+        } else {
+            Some(RunGuard(flag.clone()))
+        }
+    }
+}
+
+impl Drop for RunGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
 }
 
 #[tauri::command]
@@ -39,10 +59,12 @@ fn plan_conversion(paths: Vec<PathBuf>, output_dir: Option<PathBuf>) -> Result<P
 
 #[tauri::command]
 async fn convert(plan: Plan, on_event: Channel<Event>, state: State<'_, AppState>) -> Result<Summary, String> {
+    let guard = RunGuard::acquire(&state.running).ok_or("a conversion is already running")?;
     let settings = Settings::load();
     let cancel = state.cancel.clone();
     cancel.store(false, Ordering::SeqCst);
     tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
         space::check_free_space(&plan).map_err(|e| e.to_string())?;
         let manifest_file = undo::manifest_path();
         let (summary, _) = runner::run(&plan, &settings, &cancel, Some(&manifest_file), |event| {
@@ -86,4 +108,19 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running the SP-404 MKII Converter");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_one_conversion_runs_at_a_time() {
+        let flag = Arc::new(AtomicBool::new(false));
+        let first = RunGuard::acquire(&flag);
+        assert!(first.is_some());
+        assert!(RunGuard::acquire(&flag).is_none());
+        drop(first);
+        assert!(RunGuard::acquire(&flag).is_some());
+    }
 }

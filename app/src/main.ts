@@ -189,14 +189,20 @@ function renderSummary(summary: Summary) {
 
 async function convertAll() {
   if (busy || packs.length === 0) return;
+  // Claim before any await so a double click or a repeated shortcut cannot start a second run.
+  busy = true;
+  refreshButtons();
   let plan: Plan | undefined;
   try {
     plan = await buildPlan();
   } catch (error) {
     showMessage(String(error), "error");
+  }
+  if (!plan) {
+    busy = false;
+    refreshButtons();
     return;
   }
-  if (!plan) return;
   setBusy(true);
   setProgress(0, 0);
   output.replaceChildren();
