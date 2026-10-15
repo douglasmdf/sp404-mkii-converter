@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use sp404_core::undo::{record, undo, undo_last_session, Manifest};
+use sp404_core::undo::{record, undo, undo_last_session, Manifest, ManifestWriter};
 
 fn make_file(path: &Path, content: &[u8]) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -88,4 +88,39 @@ fn undo_last_session_consumes_the_manifest() {
     assert_eq!(report.removed, 1);
     assert!(!path.exists());
     assert!(undo_last_session(&path, false).unwrap().is_none());
+}
+
+#[test]
+fn writer_keeps_old_session_until_first_record_then_appends() {
+    let dir = tempfile::tempdir().unwrap();
+    let old = dir.path().join("old.wav");
+    let a = dir.path().join("Pack/a.wav");
+    make_file(&old, b"old");
+    make_file(&a, b"new");
+    let path = dir.path().join("data").join("last_session.json");
+    Manifest { files: vec![record(&old).unwrap()], dirs: vec![] }.save_to(&path).unwrap();
+
+    let writer = ManifestWriter::new(&path);
+    assert_eq!(Manifest::load_from(&path).unwrap().unwrap().files[0].path, old);
+
+    writer.record_dir(&dir.path().join("Pack")).unwrap();
+    writer.record_file(&a).unwrap();
+    let m = Manifest::load_from(&path).unwrap().unwrap();
+    assert_eq!(m.dirs, vec![dir.path().join("Pack")]);
+    assert_eq!(m.files.len(), 1);
+    assert_eq!(m.files[0].path, a);
+}
+
+#[test]
+fn truncated_last_line_is_ignored() {
+    // A crash can leave a half-written last line; everything before it must still be undoable.
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.wav");
+    make_file(&a, b"x");
+    let path = dir.path().join("last_session.json");
+    Manifest { files: vec![record(&a).unwrap()], dirs: vec![] }.save_to(&path).unwrap();
+    let mut text = fs::read_to_string(&path).unwrap();
+    text.push_str("{\"type\":\"file\",\"pa");
+    fs::write(&path, text).unwrap();
+    assert_eq!(Manifest::load_from(&path).unwrap().unwrap().files.len(), 1);
 }

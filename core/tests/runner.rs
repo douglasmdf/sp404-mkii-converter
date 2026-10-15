@@ -9,7 +9,7 @@ use common::*;
 use sp404_core::config::Settings;
 use sp404_core::runner::{run, Event, FileStatus, LOG_FILE_NAME};
 use sp404_core::scan::{build_plan, Plan};
-use sp404_core::undo::undo;
+use sp404_core::undo::{undo, Manifest};
 
 fn make_pack(root: &Path) -> PathBuf {
     let pack = root.join("Pack");
@@ -40,7 +40,7 @@ fn converts_copies_and_reports_events() {
     fs::create_dir_all(&out).unwrap();
     let plan = plan_for(&pack, &out);
     let events = Mutex::new(Vec::new());
-    let (summary, _) = run(&plan, &settings(), &AtomicBool::new(false), |e| events.lock().unwrap().push(e)).unwrap();
+    let (summary, _) = run(&plan, &settings(), &AtomicBool::new(false), None, |e| events.lock().unwrap().push(e)).unwrap();
 
     assert_eq!((summary.converted, summary.copied, summary.failed, summary.skipped), (2, 1, 1, 0));
     assert!(out.join("Pack/Drums/kick.wav").exists());
@@ -63,9 +63,9 @@ fn rerun_skips_existing_outputs() {
     let pack = make_pack(tmp.path());
     let out = tmp.path().join("out");
     let plan = plan_for(&pack, &out);
-    run(&plan, &settings(), &AtomicBool::new(false), |_| {}).unwrap();
+    run(&plan, &settings(), &AtomicBool::new(false), None, |_| {}).unwrap();
     let plan = plan_for(&pack, &out);
-    let (summary, manifest) = run(&plan, &settings(), &AtomicBool::new(false), |_| {}).unwrap();
+    let (summary, manifest) = run(&plan, &settings(), &AtomicBool::new(false), None, |_| {}).unwrap();
     assert_eq!((summary.skipped, summary.converted, summary.failed), (3, 0, 1));
     assert!(manifest.files.is_empty());
 }
@@ -76,7 +76,7 @@ fn cancelled_run_writes_nothing() {
     let pack = make_pack(tmp.path());
     let out = tmp.path().join("out");
     let plan = plan_for(&pack, &out);
-    let (summary, manifest) = run(&plan, &settings(), &AtomicBool::new(true), |_| {}).unwrap();
+    let (summary, manifest) = run(&plan, &settings(), &AtomicBool::new(true), None, |_| {}).unwrap();
     assert_eq!(summary.cancelled, 4);
     assert!(summary.results.iter().all(|r| r.status == FileStatus::Cancelled));
     assert!(manifest.files.is_empty());
@@ -90,7 +90,7 @@ fn manifest_allows_full_undo() {
     let out = tmp.path().join("out");
     fs::create_dir_all(&out).unwrap();
     let plan = plan_for(&pack, &out);
-    let (_, manifest) = run(&plan, &settings(), &AtomicBool::new(false), |_| {}).unwrap();
+    let (_, manifest) = run(&plan, &settings(), &AtomicBool::new(false), None, |_| {}).unwrap();
     assert_eq!(manifest.files.len(), 3);
     assert!(manifest.dirs.contains(&out.join("Pack")));
     assert!(manifest.dirs.contains(&out.join("Pack").join("Drums")));
@@ -107,7 +107,7 @@ fn json_log_is_written_and_recorded() {
     let plan = plan_for(&pack, &out);
     let mut s = settings();
     s.write_json_log = true;
-    let (_, manifest) = run(&plan, &s, &AtomicBool::new(false), |_| {}).unwrap();
+    let (_, manifest) = run(&plan, &s, &AtomicBool::new(false), None, |_| {}).unwrap();
     let log = out.join("Pack").join(LOG_FILE_NAME);
     let parsed: serde_json::Value = serde_json::from_str(&fs::read_to_string(&log).unwrap()).unwrap();
     assert_eq!(parsed.as_array().unwrap().len(), 4);
@@ -124,7 +124,61 @@ fn broken_file_does_not_stop_the_batch() {
     write_i16_wav(&pack.join("b_good.wav"), 48_000, 1, &[1, 2, 3]);
     let out = tmp.path().join("out");
     let plan = plan_for(&pack, &out);
-    let (summary, _) = run(&plan, &settings(), &AtomicBool::new(false), |_| {}).unwrap();
+    let (summary, _) = run(&plan, &settings(), &AtomicBool::new(false), None, |_| {}).unwrap();
     assert_eq!((summary.failed, summary.converted), (1, 1));
     assert!(matches!(&summary.results[0].status, FileStatus::Failed { reason } if !reason.is_empty()));
+}
+
+#[test]
+fn manifest_is_persisted_while_running() {
+    // Final review Important 3: if the app dies mid-run, undo must know what this run created.
+    let tmp = tempfile::tempdir().unwrap();
+    let pack = make_pack(tmp.path());
+    let out = tmp.path().join("out");
+    let manifest_file = tmp.path().join("data").join("last_session.json");
+    let plan = plan_for(&pack, &out);
+    let successes = Mutex::new(0usize);
+    let checks = Mutex::new(Vec::new());
+    run(&plan, &settings(), &AtomicBool::new(false), Some(&manifest_file), |e| {
+        if let Event::FileDone { result, .. } = e {
+            let mut ok = successes.lock().unwrap();
+            if matches!(result.status, FileStatus::Converted | FileStatus::Copied) {
+                *ok += 1;
+            }
+            let on_disk = Manifest::load_from(&manifest_file).unwrap().map_or(0, |m| m.files.len());
+            checks.lock().unwrap().push((*ok, on_disk));
+        }
+    })
+    .unwrap();
+    let checks = checks.into_inner().unwrap();
+    assert_eq!(checks.len(), 4);
+    // Another worker may record its file before this event is emitted, so disk can be ahead.
+    assert!(checks.iter().all(|(ok, on_disk)| on_disk >= ok), "{checks:?}");
+    let m = Manifest::load_from(&manifest_file).unwrap().unwrap();
+    assert!(m.dirs.contains(&out.join("Pack")));
+}
+
+#[test]
+fn run_that_creates_nothing_keeps_previous_manifest() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pack = make_pack(tmp.path());
+    let out = tmp.path().join("out");
+    let manifest_file = tmp.path().join("data").join("last_session.json");
+    run(&plan_for(&pack, &out), &settings(), &AtomicBool::new(false), Some(&manifest_file), |_| {}).unwrap();
+    run(&plan_for(&pack, &out), &settings(), &AtomicBool::new(false), Some(&manifest_file), |_| {}).unwrap();
+    assert_eq!(Manifest::load_from(&manifest_file).unwrap().unwrap().files.len(), 3);
+}
+
+#[test]
+fn json_log_failure_is_not_fatal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pack = make_pack(tmp.path());
+    let out = tmp.path().join("out");
+    fs::create_dir_all(out.join("Pack").join(LOG_FILE_NAME)).unwrap();
+    let manifest_file = tmp.path().join("data").join("last_session.json");
+    let mut s = settings();
+    s.write_json_log = true;
+    let (summary, _) = run(&plan_for(&pack, &out), &s, &AtomicBool::new(false), Some(&manifest_file), |_| {}).unwrap();
+    assert_eq!(summary.converted, 2);
+    assert_eq!(Manifest::load_from(&manifest_file).unwrap().unwrap().files.len(), 3);
 }

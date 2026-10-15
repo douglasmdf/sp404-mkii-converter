@@ -69,7 +69,8 @@ fn convert(packs: &[PathBuf], out: Option<&Path>, dry_run: bool, json_log: bool)
     }
     space::check_free_space(&plan).map_err(|e| e.to_string())?;
     let cancel = AtomicBool::new(false);
-    let (summary, manifest) = runner::run(&plan, &settings, &cancel, |event| {
+    let manifest_file = undo::manifest_path();
+    let (summary, _) = runner::run(&plan, &settings, &cancel, Some(&manifest_file), |event| {
         if let Event::FileDone { done, total, result } = event {
             let label = match &result.status {
                 FileStatus::Converted => String::from("converted"),
@@ -82,7 +83,6 @@ fn convert(packs: &[PathBuf], out: Option<&Path>, dry_run: bool, json_log: bool)
         }
     })
     .map_err(|e| e.to_string())?;
-    manifest.save_to(&undo::manifest_path()).map_err(|e| e.to_string())?;
     println!(
         "\n{} converted, {} copied, {} skipped, {} failed, {} with warnings",
         summary.converted, summary.copied, summary.skipped, summary.failed, summary.with_warnings

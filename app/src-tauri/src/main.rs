@@ -44,11 +44,11 @@ async fn convert(plan: Plan, on_event: Channel<Event>, state: State<'_, AppState
     cancel.store(false, Ordering::SeqCst);
     tauri::async_runtime::spawn_blocking(move || {
         space::check_free_space(&plan).map_err(|e| e.to_string())?;
-        let (summary, manifest) = runner::run(&plan, &settings, &cancel, |event| {
+        let manifest_file = undo::manifest_path();
+        let (summary, _) = runner::run(&plan, &settings, &cancel, Some(&manifest_file), |event| {
             let _ = on_event.send(event);
         })
         .map_err(|e| e.to_string())?;
-        manifest.save_to(&undo::manifest_path()).map_err(|e| e.to_string())?;
         Ok(summary)
     })
     .await

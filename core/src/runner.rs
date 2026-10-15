@@ -2,7 +2,8 @@
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use rayon::prelude::*;
@@ -13,7 +14,7 @@ use crate::convert::{convert_file, Warning};
 use crate::encode::copy_file;
 use crate::error::{io_err, CoreError, Result};
 use crate::scan::{Job, JobKind, Plan};
-use crate::undo::{self, Manifest};
+use crate::undo::{self, Manifest, ManifestWriter};
 
 pub const LOG_FILE_NAME: &str = "conversion_results.json";
 
@@ -76,7 +77,15 @@ pub enum Event {
     Finished { summary: Summary },
 }
 
-pub fn run<F>(plan: &Plan, settings: &Settings, cancel: &AtomicBool, on_event: F) -> Result<(Summary, Manifest)>
+/// Runs every job of the plan. When `manifest_file` is given, what gets created is appended
+/// to it as it happens (see `ManifestWriter`), so undo works even if the run is interrupted.
+pub fn run<F>(
+    plan: &Plan,
+    settings: &Settings,
+    cancel: &AtomicBool,
+    manifest_file: Option<&Path>,
+    on_event: F,
+) -> Result<(Summary, Manifest)>
 where
     F: Fn(Event) + Sync,
 {
@@ -84,7 +93,20 @@ where
     let total = jobs.len();
     on_event(Event::Started { total });
 
+    let writer = manifest_file.map(ManifestWriter::new);
+    let manifest_error: Mutex<Option<CoreError>> = Mutex::new(None);
+    let note = |outcome: Result<()>| {
+        if let Err(e) = outcome {
+            manifest_error.lock().expect("lock").get_or_insert(e);
+        }
+    };
+
     let created_dirs = if cancel.load(Ordering::SeqCst) { Vec::new() } else { create_output_dirs(plan)? };
+    if let Some(writer) = &writer {
+        for dir in &created_dirs {
+            note(writer.record_dir(dir));
+        }
+    }
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(settings.workers.max(1))
         .build()
@@ -94,6 +116,9 @@ where
         jobs.par_iter()
             .map(|job| {
                 let result = run_job(job, settings, cancel);
+                if let (Some(writer), FileStatus::Converted | FileStatus::Copied) = (&writer, &result.status) {
+                    note(writer.record_file(&result.dest));
+                }
                 let done_now = done.fetch_add(1, Ordering::SeqCst) + 1;
                 on_event(Event::FileDone { done: done_now, total, result: result.clone() });
                 result
@@ -119,13 +144,21 @@ where
                 results.iter().filter(|r| r.dest.starts_with(&pack.dest_root)).collect();
             let log_path = pack.dest_root.join(LOG_FILE_NAME);
             let json = serde_json::to_string_pretty(&pack_results).map_err(|e| CoreError::Internal(e.to_string()))?;
-            fs::write(&log_path, json).map_err(io_err(&log_path))?;
-            if let Some(entry) = undo::record(&log_path) {
-                manifest.files.push(entry);
+            // The log is optional: failing to write it must not lose the conversion or undo record.
+            if fs::write(&log_path, json).is_ok() {
+                if let Some(writer) = &writer {
+                    note(writer.record_file(&log_path));
+                }
+                if let Some(entry) = undo::record(&log_path) {
+                    manifest.files.push(entry);
+                }
             }
         }
     }
 
+    if let Some(error) = manifest_error.into_inner().expect("lock") {
+        return Err(error);
+    }
     let summary = Summary::from_results(results);
     on_event(Event::Finished { summary: summary.clone() });
     Ok((summary, manifest))
