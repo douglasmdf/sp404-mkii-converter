@@ -7,7 +7,9 @@ pub mod encode;
 pub mod error;
 pub mod naming;
 pub mod process;
+pub mod runner;
 pub mod scan;
+pub mod space;
 pub mod undo;
 
 pub use error::{CoreError, Result};
