@@ -1,0 +1,14 @@
+[package]
+name = "sp404-converter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { workspace = true }
+sp404-core = { path = "../../core" }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
