@@ -4,6 +4,7 @@ pub mod config;
 pub mod decode;
 pub mod error;
 pub mod naming;
+pub mod process;
 pub mod scan;
 
 pub use error::{CoreError, Result};
