@@ -200,3 +200,37 @@ fn inspect_counts_files_by_kind() {
     assert_eq!(s.name, "Pack");
     assert_eq!((s.audio_files, s.other_files, s.unsupported_files), (2, 1, 1));
 }
+
+#[test]
+fn output_inside_another_pack_of_the_batch_is_rejected() {
+    // Final review Important 1, scenario A: Downloads/Drums + Samples/Drums saved into Samples.
+    let tmp = tempfile::tempdir().unwrap();
+    let downloads = tmp.path().join("Downloads").join("Drums");
+    let samples = tmp.path().join("Samples").join("Drums");
+    touch(&downloads, "kick.wav");
+    touch(&samples, "kick.wav");
+    let result = build_plan(&[downloads, samples], Some(&tmp.path().join("Samples")), &Settings::default());
+    assert!(matches!(result, Err(CoreError::OutputInsideSource { .. })));
+}
+
+#[test]
+fn output_containing_the_source_is_rejected() {
+    // Final review Important 1, scenario B: Windows "Extract All" makes DL/808 Pack/808 Pack.
+    let tmp = tempfile::tempdir().unwrap();
+    let inner = tmp.path().join("DL").join("808 Pack").join("808 Pack");
+    touch(&inner, "Kicks/k.wav");
+    let result = build_plan(&[inner], Some(&tmp.path().join("DL")), &Settings::default());
+    assert!(matches!(result, Err(CoreError::OutputInsideSource { .. })));
+}
+
+#[test]
+fn nested_packs_next_to_source_are_rejected() {
+    // Final review Important 1, scenario C.
+    let tmp = tempfile::tempdir().unwrap();
+    let drums = tmp.path().join("Drums");
+    let kicks = drums.join("Kicks");
+    touch(&kicks, "k.wav");
+    let mut s = Settings::default();
+    s.save_mode = SaveMode::NextToSource;
+    assert!(matches!(build_plan(&[drums, kicks], None, &s), Err(CoreError::OutputInsideSource { .. })));
+}

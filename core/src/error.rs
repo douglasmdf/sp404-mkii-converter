@@ -10,7 +10,7 @@ pub enum CoreError {
     },
     #[error("not a folder: {0}")]
     NotADirectory(PathBuf),
-    #[error("output folder {dest} is the same as or inside the source pack {source_dir}")]
+    #[error("output folder {dest} overlaps the source folder {source_dir}")]
     OutputInsideSource { dest: PathBuf, source_dir: PathBuf },
     #[error("no output folder chosen")]
     NoOutputDir,

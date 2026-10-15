@@ -108,7 +108,7 @@ pub fn inspect_pack(dir: &Path) -> Result<PackSummary> {
 
 pub fn build_plan(pack_dirs: &[PathBuf], output_dir: Option<&Path>, settings: &Settings) -> Result<Plan> {
     let mut used_roots = HashSet::new();
-    let mut packs = Vec::with_capacity(pack_dirs.len());
+    let mut roots = Vec::with_capacity(pack_dirs.len());
     for source_root in pack_dirs {
         if !source_root.is_dir() {
             return Err(CoreError::NotADirectory(source_root.clone()));
@@ -123,7 +123,11 @@ pub fn build_plan(pack_dirs: &[PathBuf], output_dir: Option<&Path>, settings: &S
             }
             n += 1;
         };
-        ensure_outside(&dest_root, source_root)?;
+        roots.push((source_root, name, dest_root));
+    }
+    ensure_no_overlap(&roots)?;
+    let mut packs = Vec::with_capacity(roots.len());
+    for (source_root, name, dest_root) in roots {
         packs.push(plan_pack(source_root, name, dest_root, settings)?);
     }
     Ok(Plan { packs })
@@ -190,12 +194,20 @@ fn pack_dest_root(source_root: &Path, name: &str, output_dir: Option<&Path>, set
     }
 }
 
-fn ensure_outside(dest_root: &Path, source_root: &Path) -> Result<()> {
-    if resolve_path(dest_root).starts_with(resolve_path(source_root)) {
-        return Err(CoreError::OutputInsideSource {
-            dest: dest_root.to_path_buf(),
-            source_dir: source_root.to_path_buf(),
-        });
+/// No output folder may equal, sit inside, or contain any source folder of the batch —
+/// otherwise converted files would mix with (or land among) someone's originals.
+fn ensure_no_overlap(roots: &[(&PathBuf, String, PathBuf)]) -> Result<()> {
+    let sources: Vec<(&PathBuf, PathBuf)> = roots.iter().map(|(src, _, _)| (*src, resolve_path(src))).collect();
+    for (_, _, dest_root) in roots {
+        let dest = resolve_path(dest_root);
+        for (source_root, source) in &sources {
+            if dest.starts_with(source) || source.starts_with(&dest) {
+                return Err(CoreError::OutputInsideSource {
+                    dest: dest_root.clone(),
+                    source_dir: (*source_root).clone(),
+                });
+            }
+        }
     }
     Ok(())
 }
