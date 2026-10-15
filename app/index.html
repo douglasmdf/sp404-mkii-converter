@@ -2,10 +2,86 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SP-404 MKII Converter</title>
+    <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
-    <pre id="out">loading…</pre>
+    <main>
+      <header>
+        <div>
+          <h1 data-i18n="appTitle"></h1>
+          <p class="muted" data-i18n="tagline"></p>
+        </div>
+        <button id="settings-btn" class="icon" data-i18n-title="settings">⚙</button>
+      </header>
+
+      <section id="drop-zone">
+        <p data-i18n="dropHint"></p>
+        <button id="browse-btn" data-i18n="browse"></button>
+      </section>
+
+      <ul id="pack-list"></ul>
+
+      <div id="actions">
+        <button id="clear-btn" data-i18n="clear"></button>
+        <button id="undo-btn" data-i18n="undo"></button>
+        <span class="spacer"></span>
+        <button id="dry-run-btn" data-i18n="dryRun"></button>
+        <button id="convert-btn" class="primary" data-i18n="convertAll"></button>
+      </div>
+
+      <section id="progress" hidden>
+        <progress id="progress-bar" value="0" max="1"></progress>
+        <span id="progress-label"></span>
+        <button id="cancel-btn" data-i18n="cancel"></button>
+      </section>
+
+      <section id="output"></section>
+    </main>
+
+    <dialog id="settings-dialog">
+      <form id="settings-form" method="dialog">
+        <h2 data-i18n="settings"></h2>
+        <fieldset>
+          <legend data-i18n="sNames"></legend>
+          <label><input type="checkbox" name="sanitizeFilenames" /> <span data-i18n="sSanitizeFilenames"></span></label>
+          <label><input type="checkbox" name="sanitizeFolderNames" /> <span data-i18n="sSanitizeFolderNames"></span></label>
+          <label><input type="checkbox" name="flattenFolders" /> <span data-i18n="sFlatten"></span></label>
+          <label>
+            <span data-i18n="sMaxLength"></span>
+            <input type="number" name="maxFilenameLength" min="1" max="255" data-i18n-placeholder="sMaxLengthHint" />
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend data-i18n="sConversion"></legend>
+          <label><input type="checkbox" name="downmixMultichannel" /> <span data-i18n="sDownmix"></span></label>
+        </fieldset>
+        <fieldset>
+          <legend data-i18n="sOutput"></legend>
+          <label>
+            <span data-i18n="sSaveMode"></span>
+            <select name="saveMode">
+              <option value="ask" data-i18n="sAsk"></option>
+              <option value="fixed" data-i18n="sFixed"></option>
+              <option value="nextToSource" data-i18n="sNextToSource"></option>
+            </select>
+          </label>
+          <div class="row">
+            <span data-i18n="sFixedDir"></span>
+            <code id="fixed-dir-label"></code>
+            <button type="button" id="choose-fixed-btn" data-i18n="sChoose"></button>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend data-i18n="sAdvanced"></legend>
+          <label><span data-i18n="sWorkers"></span> <input type="number" name="workers" min="1" max="32" /></label>
+          <label><input type="checkbox" name="writeJsonLog" /> <span data-i18n="sJsonLog"></span></label>
+        </fieldset>
+        <menu><button value="close" data-i18n="close"></button></menu>
+      </form>
+    </dialog>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

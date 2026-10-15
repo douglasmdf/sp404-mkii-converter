@@ -1,0 +1,121 @@
+const en = {
+  appTitle: "SP-404 MKII Converter",
+  tagline: "16-bit · 48 kHz WAV",
+  dropHint: "Drop sample pack folders here",
+  browse: "Browse…",
+  remove: "Remove",
+  clear: "Clear",
+  undo: "Undo",
+  dryRun: "Dry Run",
+  convertAll: "Convert All",
+  cancel: "Cancel",
+  settings: "Settings",
+  close: "Close",
+  packFiles: "{audio} audio · {other} other · {unsupported} unsupported",
+  chooseOutput: "Choose where to save the converted packs",
+  progress: "{done} / {total}",
+  dryRunTitle: "Dry run — nothing was written",
+  willSkip: "already exists, will skip",
+  unsupported: "unsupported format",
+  summaryTitle: "Done",
+  summaryCounts:
+    "{converted} converted · {copied} copied · {skipped} skipped · {failed} failed · {cancelled} cancelled · {warnings} with warnings",
+  warnClipped: "peaks above 0 dBFS were limited ({samples} samples)",
+  warnTooLong: "longer than 16 min ({minutes} min), too long for one SP-404 sample",
+  warnDownmixed: "mixed down from {channels} channels to stereo",
+  undoConfirm: "Delete the files created by the last conversion?",
+  undoRemoveDirs: "Also remove folders left empty?",
+  undoDone: "Removed {removed} files and {dirs} folders. {kept} files were kept because they changed after the conversion.",
+  nothingToUndo: "Nothing to undo.",
+  notSet: "(not set)",
+  sNames: "Names and folders",
+  sConversion: "Conversion",
+  sOutput: "Output",
+  sAdvanced: "Advanced",
+  sSanitizeFilenames: "Clean up file names (ASCII, no special characters)",
+  sSanitizeFolderNames: "Clean up folder names",
+  sFlatten: "Flatten folders (Breaks/kick.wav → Breaks_kick.wav)",
+  sMaxLength: "Max file name length",
+  sMaxLengthHint: "no limit",
+  sDownmix: "Mix files with more than 2 channels down to stereo",
+  sSaveMode: "Save to",
+  sAsk: "Ask each time",
+  sFixed: "Fixed folder",
+  sNextToSource: "Next to the source folder",
+  sFixedDir: "Fixed folder:",
+  sChoose: "Choose…",
+  sWorkers: "Files converted at the same time",
+  sJsonLog: "Write conversion_results.json",
+};
+
+type Key = keyof typeof en;
+
+const pt: Record<Key, string> = {
+  appTitle: "SP-404 MKII Converter",
+  tagline: "WAV 16 bits · 48 kHz",
+  dropHint: "Arraste pastas de sample packs para cá",
+  browse: "Procurar…",
+  remove: "Remover",
+  clear: "Limpar",
+  undo: "Desfazer",
+  dryRun: "Dry Run",
+  convertAll: "Converter tudo",
+  cancel: "Cancelar",
+  settings: "Configurações",
+  close: "Fechar",
+  packFiles: "{audio} áudio · {other} outros · {unsupported} não suportados",
+  chooseOutput: "Escolha onde salvar os packs convertidos",
+  progress: "{done} / {total}",
+  dryRunTitle: "Dry run — nada foi gravado",
+  willSkip: "já existe, será pulado",
+  unsupported: "formato não suportado",
+  summaryTitle: "Concluído",
+  summaryCounts:
+    "{converted} convertidos · {copied} copiados · {skipped} pulados · {failed} com erro · {cancelled} cancelados · {warnings} com avisos",
+  warnClipped: "picos acima de 0 dBFS foram limitados ({samples} amostras)",
+  warnTooLong: "mais de 16 min ({minutes} min), longo demais para um sample da SP-404",
+  warnDownmixed: "mixado de {channels} canais para estéreo",
+  undoConfirm: "Apagar os arquivos criados pela última conversão?",
+  undoRemoveDirs: "Remover também as pastas que ficarem vazias?",
+  undoDone: "{removed} arquivos e {dirs} pastas removidos. {kept} arquivos mantidos porque foram alterados depois da conversão.",
+  nothingToUndo: "Nada para desfazer.",
+  notSet: "(não definida)",
+  sNames: "Nomes e pastas",
+  sConversion: "Conversão",
+  sOutput: "Saída",
+  sAdvanced: "Avançado",
+  sSanitizeFilenames: "Limpar nomes de arquivo (ASCII, sem caracteres especiais)",
+  sSanitizeFolderNames: "Limpar nomes de pastas",
+  sFlatten: "Achatar pastas (Breaks/kick.wav → Breaks_kick.wav)",
+  sMaxLength: "Tamanho máximo do nome",
+  sMaxLengthHint: "sem limite",
+  sDownmix: "Mixar arquivos com mais de 2 canais para estéreo",
+  sSaveMode: "Salvar em",
+  sAsk: "Perguntar a cada vez",
+  sFixed: "Pasta fixa",
+  sNextToSource: "Ao lado da pasta original",
+  sFixedDir: "Pasta fixa:",
+  sChoose: "Escolher…",
+  sWorkers: "Arquivos convertidos ao mesmo tempo",
+  sJsonLog: "Gravar conversion_results.json",
+};
+
+const isPortuguese = navigator.language.toLowerCase().startsWith("pt");
+const dict: Record<Key, string> = isPortuguese ? pt : en;
+
+export function t(key: Key, vars: Record<string, string | number> = {}): string {
+  return dict[key].replace(/\{(\w+)\}/g, (_, name: string) => String(vars[name] ?? ""));
+}
+
+export function applyI18n(root: ParentNode = document): void {
+  document.documentElement.lang = isPortuguese ? "pt-BR" : "en";
+  root.querySelectorAll<HTMLElement>("[data-i18n]").forEach((el) => {
+    el.textContent = t(el.dataset.i18n as Key);
+  });
+  root.querySelectorAll<HTMLElement>("[data-i18n-title]").forEach((el) => {
+    el.title = t(el.dataset.i18nTitle as Key);
+  });
+  root.querySelectorAll<HTMLInputElement>("[data-i18n-placeholder]").forEach((el) => {
+    el.placeholder = t(el.dataset.i18nPlaceholder as Key);
+  });
+}
