@@ -126,5 +126,7 @@ Comandos Tauri: `scan(paths, settings) -> Plan`, `convert(plan) -> SessionId` (c
 
 ## 7. Distribuição
 
-- v1: instaladores não assinados (`.dmg`, `.msi`) gerados pelo CI.
+- v1: instaladores não assinados gerados pelo CI:
+  - **macOS**: `.dmg` (arrastar para Aplicativos).
+  - **Windows**: `.exe` (instalador NSIS do Tauri), instalação por usuário sem exigir administrador, interface do instalador em português e inglês. `.msi` não é gerado.
 - Preparado para depois: assinatura/notarização Apple, assinatura Windows e plugin de updater do Tauri — configuração presente, desligada.
