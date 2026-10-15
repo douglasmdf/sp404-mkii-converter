@@ -1,0 +1,17 @@
+[package]
+name = "sp404-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sp404"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+sp404-core = { path = "../core" }
+
+[dev-dependencies]
+hound = "3.5"
+tempfile = "3"
