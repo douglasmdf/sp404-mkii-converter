@@ -2,5 +2,6 @@
 
 pub mod config;
 pub mod error;
+pub mod naming;
 
 pub use error::{CoreError, Result};
