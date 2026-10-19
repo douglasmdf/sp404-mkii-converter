@@ -4,6 +4,7 @@
 use serde::Serialize;
 
 pub mod features;
+pub mod harmony;
 pub mod pitch;
 pub mod signal;
 #[cfg(test)]
