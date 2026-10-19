@@ -139,8 +139,12 @@ pub fn parse_name(stem: &str) -> NameTokens {
             continue;
         }
         if let Some(n) = all_digits(w.text, 2, 3).map(|v| v as f32).filter(|v| bpm_in_range(*v)) {
-            let next = ws.get(i + 1).filter(|x| x.text.eq_ignore_ascii_case("bpm"));
-            let prev = i.checked_sub(1).map(|p| &ws[p]).filter(|x| x.text.eq_ignore_ascii_case("bpm"));
+            let next = ws.get(i + 1).filter(|x| x.text.eq_ignore_ascii_case("bpm") && !used[i + 1]);
+            let prev = i
+                .checked_sub(1)
+                .filter(|p| !used[*p])
+                .map(|p| &ws[p])
+                .filter(|x| x.text.eq_ignore_ascii_case("bpm"));
             if let Some(b) = next {
                 out.bpm = Some((n, vec![w.span(), b.span()]));
                 used[i] = true;
@@ -199,25 +203,32 @@ pub fn parse_name(stem: &str) -> NameTokens {
     out
 }
 
-/// Deletes the spans, drops brackets left empty, collapses each run of separators to its
-/// first character and trims separators from both ends.
+/// Deletes the spans together with the separators left over around them: empty `()`/`[]`
+/// are dropped, a separator run touching a removed span collapses to its first character
+/// and is trimmed at the ends. Separators elsewhere in the stem stay as they are.
 pub fn remove_spans(stem: &str, spans: &[Span]) -> String {
+    if spans.is_empty() {
+        return stem.to_string();
+    }
+    const MARK: char = '\u{0}';
     let mut sorted: Vec<Span> = spans.to_vec();
     sorted.sort_by_key(|s| s.start);
-    let mut kept = String::with_capacity(stem.len());
+    let mut chars: Vec<char> = Vec::with_capacity(stem.len());
     let mut pos = 0;
     for s in &sorted {
         if s.start > pos {
-            kept.push_str(&stem[pos..s.start]);
+            chars.extend(stem[pos..s.start].chars());
         }
-        pos = pos.max(s.end);
+        if s.end > pos {
+            chars.push(MARK);
+            pos = s.end;
+        }
     }
     if pos < stem.len() {
-        kept.push_str(&stem[pos..]);
+        chars.extend(stem[pos..].chars());
     }
 
-    let mut chars: Vec<char> = kept.chars().collect();
-    // Remove "()" / "[]" that hold nothing but spaces, repeatedly (they can nest).
+    // Remove "()" / "[]" emptied by the removal, repeatedly (they can nest).
     loop {
         let mut removed = false;
         let mut i = 0;
@@ -231,11 +242,13 @@ pub fn remove_spans(stem: &str, spans: &[Span]) -> String {
                 }
             };
             let mut j = i + 1;
-            while j < chars.len() && chars[j] == ' ' {
+            let mut has_mark = false;
+            while j < chars.len() && (chars[j] == ' ' || chars[j] == MARK) {
+                has_mark |= chars[j] == MARK;
                 j += 1;
             }
-            if j < chars.len() && chars[j] == close {
-                chars.drain(i..=j);
+            if has_mark && j < chars.len() && chars[j] == close {
+                chars.splice(i..=j, [MARK]);
                 removed = true;
             } else {
                 i += 1;
@@ -246,20 +259,31 @@ pub fn remove_spans(stem: &str, spans: &[Span]) -> String {
         }
     }
 
+    // Collapse each separator run that touches a removal point.
     let mut out = String::with_capacity(chars.len());
-    let mut in_run = false;
-    for c in chars {
-        if is_separator(c) {
-            if !in_run {
-                out.push(c);
+    let mut i = 0;
+    while i < chars.len() {
+        if is_separator(chars[i]) || chars[i] == MARK {
+            let start = i;
+            while i < chars.len() && (is_separator(chars[i]) || chars[i] == MARK) {
+                i += 1;
             }
-            in_run = true;
+            let run = &chars[start..i];
+            if run.contains(&MARK) {
+                if start > 0 && i < chars.len() {
+                    if let Some(c) = run.iter().find(|c| **c != MARK) {
+                        out.push(*c);
+                    }
+                }
+            } else {
+                out.extend(run);
+            }
         } else {
-            out.push(c);
-            in_run = false;
+            out.push(chars[i]);
+            i += 1;
         }
     }
-    out.trim_matches(is_separator).to_string()
+    out
 }
 
 #[cfg(test)]
@@ -333,5 +357,31 @@ mod tests {
         assert_eq!(remove_spans(stem, &all_spans(&t)), "Loop");
         let whole = [Span { start: 0, end: 5 }];
         assert_eq!(remove_spans("90bpm", &whole), "");
+    }
+
+    #[test]
+    fn remove_spans_keeps_untouched_separators() {
+        let stem = "Kick - Hard 90bpm";
+        let t = parse_name(stem);
+        assert_eq!(remove_spans(stem, &all_spans(&t)), "Kick - Hard");
+        assert_eq!(remove_spans("Kick - Hard", &[]), "Kick - Hard");
+    }
+
+    #[test]
+    fn claimed_bpm_word_is_not_reused() {
+        let t = parse_name("Loop 90 bpm 120");
+        let (v, spans) = t.bpm.unwrap();
+        assert_eq!(v, 90.0);
+        assert!(spans.iter().all(|s| s.end <= 12));
+        assert_eq!(t.bare_bpm.map(|(v, _)| v), Some(120.0));
+    }
+
+    #[test]
+    fn more_parse_cases() {
+        check("Loop bpm90", None, None, Some(90.0), "Loop");
+        check("Loop BPM 140", None, None, Some(140.0), "Loop");
+        check("Bb", Some("Bb"), None, None, "");
+        check("Piano C#m7", None, Some("Dbm7"), None, "Piano");
+        assert!(parse_name("Loop AM").key.is_none());
     }
 }
