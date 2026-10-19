@@ -182,3 +182,52 @@ Com nomes sobram: `Trunk Thief` (o nome diz 89; não há como marcar um valor li
 - Mais loops conferidos (Freesound ou packs do autor): 12 loops melódicos e 1 nota real são pouco.
 - `OP1_Reverse Organ`, `HiPad`, `Sharp Hits`, `Soft Hits` e os loops que o app e a referência dão igual continuam com gabarito só da referência.
 - Decisão do autor sobre a meta de BPM sem nomes (oitava ambígua e pandeiros).
+
+# Rodada de correções (analisador v4)
+
+Correções pedidas na revisão:
+
+- **Comprimento não decide loop sozinho:** a parte "som longo" do loop agora chega no máximo a 0,45, acima do ponto médio (0,35) e abaixo do limiar de certeza (0,5). Um som longo inclina para loop, mas sai como "tipo incerto", e as palavras de pasta e arquivo decidem. Um riser de 25 s em `One Shots` continua one-shot. Só o pulso deixa um loop confiante.
+- **Comprimento pelo BPM do nome:** um arquivo cujo comprimento é um número inteiro de tempos no BPM do nome continua sendo loop. Agora é um loop incerto quando os ataques não inclinam para loop (`Snare_Tambo`).
+- **Segunda opinião do tom:** a função devolve `Option`; sem segunda opinião, o tom não é confiante (antes havia um "Dó maior" silencioso como recurso).
+- **Afinação:** a afinação já usava só picos de 55 Hz a 4 kHz. Os picos até 10 kHz entram só na fração de parciais sustentadas. Agora isso está documentado em `estimate_tuning`.
+
+## Base da métrica de tom
+
+Os **18 tons** são 11 loops melódicos (`Fading` sem rótulo) e 7 frases (`One Shots (Melodic)` com tom; `Mallet Roll` sem rótulo).
+
+- `OP1_Reverse Organ` conta como erro de tom: o app diz acorde, e acorde não recebe tom.
+- **Só loops:** exato 9/11 (81,8%), exato ou relativo 10/11 (90,9%).
+- **Só frases:** 6/7 (`Reverse Organ` é o erro). O rótulo de acorde `Dbm` é igual ao da referência, mas o tipo está errado.
+
+## Resultados (v4)
+
+| Medida | Meta | **sem nomes** | **com nomes** |
+|---|---|---|---|
+| Classificação | ≥ 90% | 93/96 (96,9%) ✅ | 95/96 (99,0%) ✅ |
+| BPM exato | ≥ 90% | 29/33 (87,9%) ❌ | 32/33 (97,0%) ✅ |
+| Tom exato (11 loops + 7 frases) | ≥ 65% | 15/18 (83,3%) ✅ | 15/18 ✅ |
+| Tom exato ou relativo | ≥ 80% | 16/18 (88,9%) ✅ | 16/18 ✅ |
+| Nota (real) | ≥ 95% | 1/1 | 1/1 |
+| Acorde (real; meta vale nos sintéticos, 13/13) | ≥ 70% | 3/3 | 3/3 |
+| Bateria sem prefixo | ≥ 98% | 72/72 ✅ | 72/72 ✅ |
+| Erros marcados como incertos | ≥ 60% | 6/10 (60,0%) ✅ | 4/5 (80%) ✅ |
+
+As métricas não mudaram em relação à v3. O que mudou foi a quantidade de acertos marcados: os sample loops longos com pulso fraco agora saem como "tipo incerto" quando não há nomes.
+
+## Erros e acertos marcados por medida
+
+Mesma base do `sp404 analyze`: cada medida de cada arquivo conta uma vez. As somas dão os totais da tabela acima.
+
+| Medida | Sem nomes: erros marcados | Sem nomes: acertos marcados | Com nomes: erros marcados | Com nomes: acertos marcados |
+|---|---|---|---|---|
+| Tipo | 1/3 | 17/93 | 1/1 | 7/95 |
+| BPM | 2/4 | 7/29 | 0/1 | 0/32 |
+| Tom | 3/3 | 7/15 | 3/3 | 7/15 |
+| Nota | 0/0 | 0/1 | 0/0 | 0/1 |
+| Acorde | 0/0 | 0/3 | 0/0 | 0/3 |
+| **Total** | **6/10** | 31/141 | **4/5** | 14/146 |
+
+## Comandos
+
+`npm run build --prefix app` não foi preciso (`app/dist` já existia). `cargo test --workspace`: 193 testes passam, nenhum falha. Medição: mesmos comandos da passagem 1.

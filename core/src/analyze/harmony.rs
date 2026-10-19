@@ -43,9 +43,12 @@ const SEGMENT_SECONDS: f32 = 0.5;
 /// (after a tie-break) between the relative pair and the best key outside it.
 const KEY_MARGIN: f32 = 0.02;
 /// Second opinion: the key the Krumhansl-Kessler profiles pick from the same chromagram. A
-/// key is confident only when both agree. On the author-checked DAYDREAMS loops this flagged
-/// both key errors (`Do the Thing`, `Thinking Back`) and 4 of 16 correct keys, where the
-/// earlier margins (0.05, and 0.15 on the tie-break evidence) flagged 0 of 2 and 9 of 20.
+/// key is confident only when both agree (no second opinion → not confident). Basis: the
+/// DAYDREAMS files whose answer key is a loop or phrase with a key label (11 loops + 7
+/// phrases), counting only those the app also gave a key, 2 wrong and 16 right (calibrated with
+/// analyzer v3). The agreement rule plus the 0.02 near-tie margin flags both key errors (`Do the
+/// Thing`, `Thinking Back`) and 8 of the 16 correct keys; the earlier margins (0.05, and 0.15 on
+/// the tie-break evidence) flagged 0 of the 2 errors and 9 of the 16 correct keys.
 const KK_MAJOR: [f32; 12] = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
 const KK_MINOR: [f32; 12] = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
 /// A pitch class is strong in a frame at this fraction of the frame's loudest class (a
@@ -88,7 +91,7 @@ pub fn estimate_key(features: &Features) -> Option<Estimate<Key>> {
     let relative_score = keys.iter().find(|(k, _)| *k == relative).map_or(f32::MIN, |k| k.1);
     if best_score - relative_score >= RELATIVE_MARGIN {
         let margin = best_score - keys[1].1;
-        return Some(Estimate { value: best, confident: margin >= KEY_MARGIN && second_opinion(&chroma) == best });
+        return Some(Estimate { value: best, confident: margin >= KEY_MARGIN && second_opinion(&chroma) == Some(best) });
     }
     let raw = sum(&features.chroma);
     let total = |key: Key, score: f32| score + tie_break_evidence(features, &raw, key);
@@ -96,12 +99,12 @@ pub fn estimate_key(features: &Features) -> Option<Estimate<Key>> {
     let value = if b > a { relative } else { best };
     // Any key outside the pair that is nearly as good as the pair's best makes the call uncertain.
     let rival = keys.iter().find(|(k, _)| *k != best && *k != relative).map_or(f32::MIN, |k| k.1);
-    let confident = best_score - rival >= KEY_MARGIN && second_opinion(&chroma) == value;
+    let confident = best_score - rival >= KEY_MARGIN && second_opinion(&chroma) == Some(value);
     Some(Estimate { value, confident })
 }
 
 /// The best key by the Krumhansl-Kessler profiles (see `KK_MAJOR`).
-fn second_opinion(chroma: &[f32; 12]) -> Key {
+fn second_opinion(chroma: &[f32; 12]) -> Option<Key> {
     let score = |key: Key| {
         let profile = if key.minor { &KK_MINOR } else { &KK_MAJOR };
         let rotated: [f32; 12] = std::array::from_fn(|pc| profile[(pc + 12 - key.tonic.0 as usize) % 12]);
@@ -113,7 +116,8 @@ fn second_opinion(chroma: &[f32; 12]) -> Key {
             let s = score(k);
             if best.is_none_or(|b| s > b.1) { Some((k, s)) } else { best }
         })
-        .map_or(Key { tonic: PitchClass(0), minor: false }, |b| b.0)
+        .filter(|b| b.1.is_finite())
+        .map(|b| b.0)
 }
 
 /// Three or more pitch classes that stay strong together through the sustained part.

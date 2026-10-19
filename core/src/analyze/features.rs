@@ -208,7 +208,9 @@ fn spectral_peaks(mags: &[f32], rate: f32, size: usize, min_hz: f32, max_hz: f32
 }
 
 /// Global deviation from A440 equal temperament, in cents (−50..50): magnitude-weighted
-/// circular mean of every chroma-band peak's offset from its nearest semitone.
+/// circular mean of every chroma-band peak's offset from its nearest semitone. Only peaks in
+/// `CHROMA_MIN_HZ..=CHROMA_MAX_HZ` count; the peaks above (collected up to `PEAKS_MAX_HZ` for
+/// the sustained-partial share) are skipped, so the tuning is the same as in analyzer v1.
 fn estimate_tuning(peaks: &[Vec<(f32, f32)>]) -> f32 {
     let (mut re, mut im) = (0f64, 0f64);
     for &(freq, mag) in peaks.iter().flatten() {

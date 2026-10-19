@@ -156,6 +156,10 @@ const PULSE_FULL_SECONDS: f32 = 4.0;
 /// melodic loops 23–91 s, and half of those have too soft a pulse for the first part.
 const LONG_MIN_SECONDS: f32 = 15.0;
 const LONG_FULL_SECONDS: f32 = 25.0;
+/// The length alone never makes a confident loop: it tops out above `LOOP_MIDPOINT` (a long
+/// sound leans to loop) but below `LOOP_STRONG`, so folder and file words still decide (a
+/// 25 s riser in a `One Shots` folder stays a one-shot).
+const LONG_MAX_SCORE: f32 = 0.45;
 /// Both parts need at least this many onsets.
 const LOOP_MIN_ONSETS: usize = 3;
 const LOOP_STRONG: f32 = 0.5;
@@ -226,10 +230,12 @@ pub(crate) fn classify_with(signal: &Signal, features: &Features, hints: &NameHi
     } else {
         sign(i32::from(has(PITCHED_WORDS) || has(CHORD_WORDS) || hints.has_key_token) - i32::from(has(DRUM_WORDS)))
     };
+    let loop_bounds = (LOOP_WEAK, LOOP_MIDPOINT, LOOP_STRONG);
     let (is_loop, loop_sure) = if cut_to_name_tempo(signal.file_seconds, hints) {
-        (true, true)
+        // A loop by its length, but only sure when the sound itself leans to loop too.
+        (true, decide(loop_score(&sound), loop_bounds, 0).0)
     } else {
-        decide(loop_score(&sound), (LOOP_WEAK, LOOP_MIDPOINT, LOOP_STRONG), loop_hint)
+        decide(loop_score(&sound), loop_bounds, loop_hint)
     };
     let (pitched, pitch_sure) = decide(pitch_score(&sound), (PITCH_WEAK, PITCH_MIDPOINT, PITCH_STRONG), pitched_hint);
     let sure = loop_sure && pitch_sure;
@@ -262,7 +268,8 @@ pub(crate) fn classify_with(signal: &Signal, features: &Features, hints: &NameHi
 
 /// A file at least `GRID_MIN_BEATS` long whose length is within `GRID_TOLERANCE_BEATS` of a
 /// whole number of beats at the BPM its name states was cut to that tempo: a loop, whatever
-/// the onsets say (in the test pack, two-beat tambourine loops with a single shake).
+/// the onsets say (in the test pack, two-beat tambourine loops with a single shake), though
+/// an uncertain one when the onsets do not lean to loop.
 const GRID_MIN_BEATS: f64 = 2.0;
 const GRID_TOLERANCE_BEATS: f64 = 0.05;
 
@@ -278,7 +285,7 @@ fn loop_score(sound: &Sound) -> f32 {
         return 0.0;
     }
     let pulse = ramp(sound.periodicity, PULSE_NONE, PULSE_FULL) * ramp(sound.seconds, PULSE_MIN_SECONDS, PULSE_FULL_SECONDS);
-    pulse.max(ramp(sound.seconds, LONG_MIN_SECONDS, LONG_FULL_SECONDS))
+    pulse.max(LONG_MAX_SCORE * ramp(sound.seconds, LONG_MIN_SECONDS, LONG_FULL_SECONDS))
 }
 
 fn pitch_score(sound: &Sound) -> f32 {
@@ -377,7 +384,9 @@ mod tests {
         // One hit in a two-beat file: a loop only because the name's BPM fits its length.
         let mut hit = noise_hit(0.3);
         hit.file_seconds = 2.0 * 60.0 / 85.0;
-        assert_eq!(kind(&hit, &hints(&["One Shots"], "Tambo (85bpm)")), SampleKind::DrumLoop);
+        let named = classify(&hit, &extract(&hit), &hints(&["One Shots"], "Tambo (85bpm)"));
+        assert_eq!(named.value, SampleKind::DrumLoop);
+        assert!(!named.confident, "the onsets do not support a loop: {named:?}");
         assert_eq!(kind(&hit, &hints(&["One Shots"], "Tambo (97bpm)")), SampleKind::Unpitched);
         assert_eq!(kind(&hit, &hints(&["One Shots"], "Tambo")), SampleKind::Unpitched);
     }
@@ -396,6 +405,18 @@ mod tests {
             })
             .collect();
         Signal { samples, rate: rate as u32, source_seconds: 4.0, file_seconds: 4.0 }
+    }
+
+    #[test]
+    fn long_sound_leans_to_loop_but_names_decide() {
+        // A 30 s held chord with a few soft re-attacks: long, pitched, no steady pulse.
+        let chords: Vec<&[f32]> = vec![&[57.0, 60.0, 64.0]; 3];
+        let pad = progression(&chords, &[45.0, 45.0, 45.0], 18.0, 3, 1);
+        assert!(pad.source_seconds > 25.0, "{}", pad.source_seconds);
+        let alone = classify(&pad, &extract(&pad), &NameHints::default());
+        assert!(!alone.confident, "{alone:?}");
+        let one_shot = classify(&pad, &extract(&pad), &hints(&["One Shots", "FX"], "Riser"));
+        assert!(!matches!(one_shot.value, SampleKind::MelodicLoop | SampleKind::DrumLoop), "{one_shot:?}");
     }
 
     #[test]
