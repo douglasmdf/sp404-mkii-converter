@@ -1,15 +1,25 @@
 //! Walks pack folders and builds a `Plan`: every source file, where it goes and how.
 //! Nothing here writes to disk.
+//!
+//! Building a plan has three steps: collect the files of every pack and of the loose files;
+//! with key/BPM detection on, analyse the convertible ones in parallel; then decide every
+//! name in order (collisions are resolved sequentially, so names are deterministic).
 
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::analyze::{AnalysisCache, NameHints};
 use crate::config::{SaveMode, Settings};
 use crate::error::{io_err, CoreError, Result};
+use crate::labeling::{self, Analysis};
+use crate::name_tags::{parse_name, remove_spans, Span};
 use crate::naming::{flatten_stem, sanitize_component, CollisionResolver};
+use crate::tags::prepend;
 
 pub const CONVERTIBLE_EXTENSIONS: &[&str] = &[
     "wav", "wave", "aif", "aiff", "aifc", "flac", "mp3", "m4a", "aac", "ogg", "oga", "caf",
@@ -35,6 +45,9 @@ pub struct Job {
     pub dest: PathBuf,
     pub kind: JobKind,
     pub already_exists: bool,
+    /// Key/BPM detection result; only with detection on, only for convertible files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analysis: Option<Analysis>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -76,6 +89,13 @@ pub struct InputsSummary {
     pub packs: Vec<PackSummary>,
     pub loose: Option<PackSummary>,
     pub rejected: Vec<PathBuf>,
+}
+
+/// Progress while a plan is built (only reported when audio is analysed).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "event", rename_all = "camelCase")]
+pub enum PlanProgress {
+    Analyzing { done: usize, total: usize },
 }
 
 pub fn is_ignored(name: &str) -> bool {
@@ -156,6 +176,19 @@ pub fn inspect_inputs(paths: &[PathBuf]) -> Result<InputsSummary> {
 }
 
 pub fn build_plan(inputs: &[PathBuf], output_dir: Option<&Path>, settings: &Settings) -> Result<Plan> {
+    plan_with(inputs, output_dir, settings, &AnalysisCache::default(), &AtomicBool::new(false), |_| {})
+}
+
+/// `build_plan` with an analysis cache, a cancel flag (checked before each analysed file)
+/// and progress reports while files are analysed.
+pub fn plan_with(
+    inputs: &[PathBuf],
+    output_dir: Option<&Path>,
+    settings: &Settings,
+    cache: &AnalysisCache,
+    cancel: &AtomicBool,
+    on_progress: impl Fn(PlanProgress) + Sync,
+) -> Result<Plan> {
     let (pack_dirs, files) = split_inputs(inputs)?;
     for file in &files {
         if classify(file) == JobKind::Copy {
@@ -193,79 +226,193 @@ pub fn build_plan(inputs: &[PathBuf], output_dir: Option<&Path>, settings: &Sett
     dests.extend(loose_root.as_ref());
     ensure_no_overlap(&sources, &dests)?;
 
-    let mut packs = Vec::with_capacity(roots.len() + 1);
+    let mut groups = Vec::with_capacity(roots.len() + 1);
     for (source_root, name, dest_root) in roots {
-        packs.push(plan_pack(source_root, name, dest_root, settings)?);
+        groups.push(collect_pack(source_root, name, dest_root)?);
     }
     if let Some(dest_root) = loose_root {
-        packs.push(plan_loose(&files, dest_root, settings));
+        groups.push(collect_loose(&files, dest_root));
     }
+    let analyses = if settings.detect_key_bpm {
+        analyze_groups(&groups, settings, cache, cancel, &on_progress)?
+    } else {
+        groups.iter().map(|g| vec![None; g.entries.len()]).collect()
+    };
+    let packs = groups.into_iter().zip(analyses).map(|(group, found)| name_group(group, found, settings)).collect();
     Ok(Plan { packs })
 }
 
-/// All loose files share one flat folder; names follow the same rules as inside a pack.
-fn plan_loose(files: &[&PathBuf], dest_root: PathBuf, settings: &Settings) -> PackPlan {
-    let mut resolver = CollisionResolver::new();
-    let mut jobs = Vec::with_capacity(files.len());
-    for file in files {
-        let kind = classify(file);
-        let stem = file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let original_ext = file.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
-        let (stem, ext, max_len) = match kind {
-            JobKind::Convert => {
-                let stem = if settings.sanitize_filenames { sanitize_component(&stem) } else { stem };
-                (stem, String::from("wav"), settings.max_filename_length)
-            }
-            JobKind::Copy | JobKind::Unsupported => (stem, original_ext, None),
-        };
-        let file_name = resolver.claim(Path::new(""), &stem, &ext, max_len);
-        let dest = dest_root.join(&file_name);
-        let already_exists = dest.exists();
-        let source = std::path::absolute(file).unwrap_or_else(|_| (*file).clone());
-        jobs.push(Job { source, dest, kind, already_exists });
-    }
-    PackPlan {
-        name: LOOSE_FOLDER_NAME.to_string(),
-        source_root: PathBuf::new(),
-        dest_root,
-        jobs,
-        loose: true,
-    }
+/// A file of a pack (or a loose file) before its output name is decided.
+struct Entry {
+    source: PathBuf,
+    kind: JobKind,
+    /// Source subfolders down to the file (raw names); empty for loose files.
+    dirs: Vec<String>,
+    stem: String,
+    ext: String,
+    /// Folders whose names count as classification hints.
+    hint_dirs: Vec<String>,
 }
 
-fn plan_pack(source_root: &Path, name: String, dest_root: PathBuf, settings: &Settings) -> Result<PackPlan> {
-    let mut resolver = CollisionResolver::new();
-    let mut jobs = Vec::new();
-    for rel in collect_files(source_root)? {
-        let kind = classify(&rel);
-        let dirs: Vec<String> = rel
-            .parent()
-            .map(|p| p.iter().map(|c| c.to_string_lossy().into_owned()).collect())
-            .unwrap_or_default();
-        let stem = rel.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let original_ext = rel.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
+struct Group {
+    name: String,
+    source_root: PathBuf,
+    dest_root: PathBuf,
+    loose: bool,
+    entries: Vec<Entry>,
+}
 
-        let rel_dir: PathBuf = if settings.flatten_folders {
-            PathBuf::new()
-        } else {
-            dirs.iter()
-                .map(|d| if settings.sanitize_folder_names { sanitize_component(d) } else { d.clone() })
-                .collect()
-        };
-        let stem = if settings.flatten_folders { flatten_stem(&dirs, &stem) } else { stem };
-        let (stem, ext, max_len) = match kind {
-            JobKind::Convert => {
-                let stem = if settings.sanitize_filenames { sanitize_component(&stem) } else { stem };
-                (stem, String::from("wav"), settings.max_filename_length)
+type Found = Option<(Analysis, Vec<Span>)>;
+
+fn collect_pack(source_root: &Path, name: String, dest_root: PathBuf) -> Result<Group> {
+    // Hints use the pack folder and its subfolders, never the folders above the pack.
+    let pack_folder = dir_name(source_root);
+    let entries = collect_files(source_root)?
+        .into_iter()
+        .map(|rel| {
+            let dirs: Vec<String> = rel
+                .parent()
+                .map(|p| p.iter().map(|c| c.to_string_lossy().into_owned()).collect())
+                .unwrap_or_default();
+            let mut hint_dirs = vec![pack_folder.clone()];
+            hint_dirs.extend(dirs.iter().cloned());
+            Entry {
+                source: source_root.join(&rel),
+                kind: classify(&rel),
+                dirs,
+                stem: file_stem(&rel),
+                ext: file_ext(&rel),
+                hint_dirs,
             }
-            JobKind::Copy | JobKind::Unsupported => (stem, original_ext, None),
-        };
-        let file_name = resolver.claim(&rel_dir, &stem, &ext, max_len);
-        let dest = dest_root.join(&rel_dir).join(&file_name);
-        let already_exists = dest.exists();
-        jobs.push(Job { source: source_root.join(&rel), dest, kind, already_exists });
+        })
+        .collect();
+    Ok(Group { name, source_root: source_root.to_path_buf(), dest_root, loose: false, entries })
+}
+
+/// All loose files share one flat folder; names follow the same rules as inside a pack.
+fn collect_loose(files: &[&PathBuf], dest_root: PathBuf) -> Group {
+    let entries = files
+        .iter()
+        .map(|file| {
+            let source = std::path::absolute(file).unwrap_or_else(|_| (*file).clone());
+            // Only the folder the file sits in counts as a hint.
+            let hint_dirs = source
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|n| vec![n.to_string_lossy().into_owned()])
+                .unwrap_or_default();
+            Entry { kind: classify(file), dirs: Vec::new(), stem: file_stem(file), ext: file_ext(file), hint_dirs, source }
+        })
+        .collect();
+    Group { name: LOOSE_FOLDER_NAME.to_string(), source_root: PathBuf::new(), dest_root, loose: true, entries }
+}
+
+fn file_stem(path: &Path) -> String {
+    path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+fn file_ext(path: &Path) -> String {
+    path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// Analyses every convertible file on a pool of `settings.workers` threads. A file that
+/// cannot be analysed gets `labeling::failed`; a set `cancel` stops with `Cancelled`.
+fn analyze_groups(
+    groups: &[Group],
+    settings: &Settings,
+    cache: &AnalysisCache,
+    cancel: &AtomicBool,
+    on_progress: &(impl Fn(PlanProgress) + Sync),
+) -> Result<Vec<Vec<Found>>> {
+    if cancel.load(Ordering::SeqCst) {
+        return Err(CoreError::Cancelled);
     }
-    Ok(PackPlan { name, source_root: source_root.to_path_buf(), dest_root, jobs, loose: false })
+    let tasks: Vec<(usize, usize)> = groups
+        .iter()
+        .enumerate()
+        .flat_map(|(g, group)| group.entries.iter().enumerate().filter(|(_, e)| e.kind == JobKind::Convert).map(move |(i, _)| (g, i)))
+        .collect();
+    let total = tasks.len();
+    let done = AtomicUsize::new(0);
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(settings.workers.max(1))
+        .build()
+        .map_err(|e| CoreError::Internal(e.to_string()))?;
+    let results: Vec<((usize, usize), (Analysis, Vec<Span>))> = pool.install(|| {
+        tasks
+            .par_iter()
+            .map(|&(g, i)| {
+                if cancel.load(Ordering::SeqCst) {
+                    return Err(CoreError::Cancelled);
+                }
+                let entry = &groups[g].entries[i];
+                let tokens = parse_name(&entry.stem);
+                let hints = NameHints::from_path(&entry.hint_dirs, &entry.stem, &tokens);
+                let found = match cache.get_or_analyze(&entry.source, &hints) {
+                    Ok(detection) => labeling::resolve(&detection, &tokens, settings.bpm_range),
+                    Err(e) => (labeling::failed(&e.to_string()), Vec::new()),
+                };
+                let done_now = done.fetch_add(1, Ordering::SeqCst) + 1;
+                on_progress(PlanProgress::Analyzing { done: done_now, total });
+                Ok(((g, i), found))
+            })
+            .collect::<Result<Vec<_>>>()
+    })?;
+    let mut out: Vec<Vec<Found>> = groups.iter().map(|g| vec![None; g.entries.len()]).collect();
+    for ((g, i), found) in results {
+        out[g][i] = Some(found);
+    }
+    Ok(out)
+}
+
+/// Decides every output name of a group, in order.
+fn name_group(group: Group, found: Vec<Found>, settings: &Settings) -> PackPlan {
+    let mut resolver = CollisionResolver::new();
+    let jobs = group
+        .entries
+        .into_iter()
+        .zip(found)
+        .map(|(entry, found)| name_entry(&mut resolver, entry, found, &group.dest_root, settings))
+        .collect();
+    PackPlan { name: group.name, source_root: group.source_root, dest_root: group.dest_root, jobs, loose: group.loose }
+}
+
+/// Name order: remove the name tokens the analysis used, flatten folders into the name,
+/// clean it, put the prefix in front, then apply the length limit and collisions.
+fn name_entry(resolver: &mut CollisionResolver, entry: Entry, found: Found, dest_root: &Path, settings: &Settings) -> Job {
+    let (analysis, spans) = match found {
+        Some((analysis, spans)) => (Some(analysis), spans),
+        None => (None, Vec::new()),
+    };
+    let prefix = analysis.as_ref().and_then(|a| a.prefix.clone());
+    let stem = remove_spans(&entry.stem, &spans);
+    let rel_dir: PathBuf = if settings.flatten_folders {
+        PathBuf::new()
+    } else {
+        entry
+            .dirs
+            .iter()
+            .map(|d| if settings.sanitize_folder_names { sanitize_component(d) } else { d.clone() })
+            .collect()
+    };
+    let stem = match (settings.flatten_folders, stem.is_empty()) {
+        (true, false) => flatten_stem(&entry.dirs, &stem),
+        (true, true) => entry.dirs.join("_"),
+        (false, _) => stem,
+    };
+    let (stem, ext, max_len) = match entry.kind {
+        JobKind::Convert => {
+            // A name that was only key/BPM becomes just the prefix (`Am 90bpm` → `Am_90`).
+            let only_prefix = stem.is_empty() && prefix.is_some();
+            let stem = if settings.sanitize_filenames && !only_prefix { sanitize_component(&stem) } else { stem };
+            (prepend(prefix.as_deref(), &stem), String::from("wav"), settings.max_filename_length)
+        }
+        JobKind::Copy | JobKind::Unsupported => (stem, entry.ext, None),
+    };
+    let file_name = resolver.claim(&rel_dir, &stem, &ext, max_len);
+    let dest = dest_root.join(&rel_dir).join(&file_name);
+    let already_exists = dest.exists();
+    Job { source: entry.source, dest, kind: entry.kind, already_exists, analysis }
 }
 
 fn dir_name(dir: &Path) -> String {

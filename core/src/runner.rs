@@ -14,6 +14,7 @@ use crate::convert::{convert_file, Warning};
 use crate::decode::probe_info;
 use crate::encode::copy_file;
 use crate::error::{io_err, CoreError, Result};
+use crate::labeling::Analysis;
 use crate::process::TARGET_RATE;
 use crate::scan::{Job, JobKind, Plan};
 use crate::undo::{self, Manifest, ManifestWriter};
@@ -44,6 +45,8 @@ pub struct FileResult {
     pub dest: PathBuf,
     pub status: FileStatus,
     pub warnings: Vec<Warning>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analysis: Option<Analysis>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -232,7 +235,7 @@ fn run_job(job: &Job, settings: &Settings, cancel: &AtomicBool) -> FileResult {
             Err(e) => FileStatus::Failed { reason: e.to_string() },
         }
     };
-    FileResult { source: job.source.clone(), dest: job.dest.clone(), status, warnings }
+    FileResult { source: job.source.clone(), dest: job.dest.clone(), status, warnings, analysis: job.analysis.clone() }
 }
 
 /// Creates every missing output folder up front and returns the ones it created,

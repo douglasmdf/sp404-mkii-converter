@@ -182,3 +182,19 @@ fn json_log_failure_is_not_fatal() {
     assert_eq!(summary.converted, 2);
     assert_eq!(Manifest::load_from(&manifest_file).unwrap().unwrap().files.len(), 3);
 }
+
+#[test]
+fn json_log_includes_analysis() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pack = make_pack(tmp.path());
+    let out = tmp.path().join("out");
+    let mut s = settings();
+    s.detect_key_bpm = true;
+    s.write_json_log = true;
+    let plan = build_plan(&[pack], Some(&out), &s).unwrap();
+    run(&plan, &s, &AtomicBool::new(false), None, |_| {}).unwrap();
+    let log = fs::read_to_string(out.join("Pack").join(LOG_FILE_NAME)).unwrap();
+    let compact: String = log.chars().filter(|c| !c.is_whitespace()).collect();
+    assert!(compact.contains("\"analysis\""), "{log}");
+    assert!(compact.contains("\"analyzerVersion\":1"), "{log}");
+}

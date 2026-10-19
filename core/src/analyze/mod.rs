@@ -1,7 +1,11 @@
 //! Audio analysis for the key/BPM prefix: note, chord, key and tempo of a sample.
 //! Pure Rust, deterministic (no randomness, no dependence on thread count).
 
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 use serde::Serialize;
 
@@ -133,6 +137,53 @@ pub(crate) fn analyze_signal(signal: &signal::Signal, hints: &NameHints) -> Dete
         SampleKind::DrumLoop => detection.bpm = rhythm.bpm(signal.source_seconds),
     }
     detection
+}
+
+/// Detections kept in memory between plans (a Dry Run then a Convert analyse each file once).
+/// Keyed by path, size, modification time and hints (hints change the classification); the
+/// BPM range is applied afterwards, so it is not part of the key. Errors are not kept.
+#[derive(Debug, Default)]
+pub struct AnalysisCache {
+    entries: Mutex<HashMap<CacheKey, Detection>>,
+    hits: AtomicUsize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct CacheKey {
+    path: PathBuf,
+    size: u64,
+    modified: Option<SystemTime>,
+    hints: NameHints,
+}
+
+impl AnalysisCache {
+    pub fn get_or_analyze(&self, path: &Path, hints: &NameHints) -> Result<Detection> {
+        let Ok(meta) = std::fs::metadata(path) else {
+            return analyze_file(path, hints);
+        };
+        let key = CacheKey { path: path.to_path_buf(), size: meta.len(), modified: meta.modified().ok(), hints: hints.clone() };
+        if let Some(found) = self.entries.lock().expect("lock").get(&key) {
+            self.hits.fetch_add(1, Ordering::SeqCst);
+            return Ok(found.clone());
+        }
+        let detection = analyze_file(path, hints)?;
+        self.entries.lock().expect("lock").insert(key, detection.clone());
+        Ok(detection)
+    }
+
+    /// Number of detections kept.
+    pub fn len(&self) -> usize {
+        self.entries.lock().expect("lock").len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// How many lookups were answered without decoding.
+    pub fn hits(&self) -> usize {
+        self.hits.load(Ordering::SeqCst)
+    }
 }
 
 #[cfg(test)]

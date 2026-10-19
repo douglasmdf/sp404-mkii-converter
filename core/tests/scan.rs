@@ -1,8 +1,15 @@
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Mutex;
 
+use common::*;
+use sp404_core::analyze::AnalysisCache;
 use sp404_core::config::{SaveMode, Settings};
-use sp404_core::scan::{build_plan, inspect_inputs, inspect_pack, JobKind, Plan, LOOSE_FOLDER_NAME};
+use sp404_core::scan::{build_plan, inspect_inputs, inspect_pack, plan_with, JobKind, Plan, PlanProgress, LOOSE_FOLDER_NAME};
+use sp404_core::tags::SampleKind;
 use sp404_core::CoreError;
 
 fn touch(root: &Path, rel: &str) {
@@ -351,4 +358,204 @@ fn folders_only_plan_is_unchanged() {
     let plan = build_plan(&[pack], Some(&out), &Settings::default()).unwrap();
     assert!(plan.packs.iter().all(|p| !p.loose));
     assert_eq!(rel_dests(&plan), ["Breaks/Funky_Break.wav", "One Shots/kick.wav", "artwork.jpg"]);
+}
+
+const RATE: u32 = 44_100;
+
+/// Fixed-seed noise in [-1, 1).
+fn noise(seed: &mut u32) -> f32 {
+    *seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+    (*seed >> 8) as f32 / (1u32 << 23) as f32 - 1.0
+}
+
+fn to_i16(samples: &[f32]) -> Vec<i16> {
+    samples.iter().map(|s| (s * 32767.0).round() as i16).collect()
+}
+
+fn ensure_parent(path: &Path) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+}
+
+/// One 30 ms noise click per beat, cut exactly at `beats` beats.
+fn write_clicks(path: &Path, bpm: f32, beats: usize) {
+    ensure_parent(path);
+    let beat = 60.0 / bpm * RATE as f32;
+    let mut out = vec![0f32; (beat * beats as f32).round() as usize];
+    let mut seed = 777;
+    for b in 0..beats {
+        let start = (b as f32 * beat).round() as usize;
+        for i in 0..(0.03 * RATE as f32) as usize {
+            if let Some(slot) = out.get_mut(start + i) {
+                *slot = 0.4 * noise(&mut seed) * (-(i as f32 / RATE as f32) / 0.004).exp();
+            }
+        }
+    }
+    write_i16_wav(path, RATE, 1, &to_i16(&out));
+}
+
+/// A decaying burst of noise (no pitch).
+fn write_noise(path: &Path, seconds: f32) {
+    ensure_parent(path);
+    let n = (seconds * RATE as f32) as usize;
+    let mut seed = 12_345;
+    let out: Vec<f32> = (0..n).map(|i| 0.5 * noise(&mut seed) * (-(i as f32 / RATE as f32) / (seconds / 5.0)).exp()).collect();
+    write_i16_wav(path, RATE, 1, &to_i16(&out));
+}
+
+fn write_sine(path: &Path, freq: f32, seconds: f32) {
+    ensure_parent(path);
+    let fmt = WavFormat { sample_rate: RATE, channels: 1, bits: 16, float: false };
+    write_sine_wav(path, &fmt, freq, 0.5, (seconds * RATE as f32) as usize);
+}
+
+fn detecting() -> Settings {
+    let mut s = Settings::default();
+    s.detect_key_bpm = true;
+    s.workers = 4;
+    s
+}
+
+fn plan(pack: &Path, out: &Path, settings: &Settings) -> Plan {
+    plan_with(&[pack.to_path_buf()], Some(out), settings, &AnalysisCache::default(), &AtomicBool::new(false), |_| {}).unwrap()
+}
+
+/// sub.wav (55 Hz sine: a note A), clicks (90bpm).wav (a drum loop) and kick.wav (noise).
+fn detection_pack(pack: &Path) {
+    write_sine(&pack.join("One Shots/Bass/sub.wav"), 55.0, 1.0);
+    write_clicks(&pack.join("Loops/clicks (90bpm).wav"), 90.0, 16);
+    write_noise(&pack.join("Drums/Kick/kick.wav"), 0.2);
+}
+
+#[test]
+fn detection_off_plan_is_unchanged() {
+    let (_tmp, pack, out) = setup();
+    touch(&pack, "Breaks/Funky Break.mp3");
+    touch(&pack, "One Shots/kick.aif");
+    touch(&pack, "artwork.jpg");
+    let plan = build_plan(&[pack.clone()], Some(&out), &Settings::default()).unwrap();
+    let job = |src: &str, dest: &str, kind: &str| {
+        serde_json::json!({ "source": pack.join(src), "dest": out.join("Pack").join(dest), "kind": kind, "alreadyExists": false })
+    };
+    let expected = serde_json::json!({ "packs": [{
+        "name": "Pack",
+        "sourceRoot": pack,
+        "destRoot": out.join("Pack"),
+        "jobs": [
+            job("Breaks/Funky Break.mp3", "Breaks/Funky_Break.wav", "convert"),
+            job("One Shots/kick.aif", "One Shots/kick.wav", "convert"),
+            job("artwork.jpg", "artwork.jpg", "copy"),
+        ],
+        "loose": false,
+    }]});
+    assert_eq!(serde_json::to_value(&plan).unwrap(), expected);
+}
+
+#[test]
+fn detection_prefixes_names() {
+    let (_tmp, pack, out) = setup();
+    detection_pack(&pack);
+    let plan = plan(&pack, &out, &detecting());
+    assert_eq!(rel_dests(&plan), ["Drums/Kick/kick.wav", "Loops/90_clicks.wav", "One Shots/Bass/A_sub.wav"]);
+    let analyses: Vec<_> = plan.packs[0].jobs.iter().map(|j| j.analysis.clone().expect("analysed")).collect();
+    let kinds: Vec<SampleKind> = analyses.iter().map(|a| a.kind).collect();
+    assert_eq!(kinds, [SampleKind::Unpitched, SampleKind::DrumLoop, SampleKind::Note]);
+    assert!(analyses[1].bpm_from_name && !analyses[2].label_from_name);
+}
+
+#[test]
+fn prefix_survives_max_length_and_collisions() {
+    let (_tmp, pack, out) = setup();
+    write_clicks(&pack.join("Loops/clicks (90bpm).wav"), 90.0, 16);
+    write_clicks(&pack.join("Loops/clicks 90bpm.wav"), 90.0, 16);
+    let mut s = detecting();
+    s.max_filename_length = Some(6);
+    assert_eq!(rel_dests(&plan(&pack, &out, &s)), ["Loops/90_cli.wav", "Loops/90_c_2.wav"]);
+}
+
+#[test]
+fn flatten_puts_prefix_first() {
+    let (_tmp, pack, out) = setup();
+    write_clicks(&pack.join("Loops/clicks (90bpm).wav"), 90.0, 16);
+    let mut s = detecting();
+    s.flatten_folders = true;
+    assert_eq!(rel_dests(&plan(&pack, &out, &s)), ["90_Loops_clicks.wav"]);
+}
+
+#[test]
+fn unanalyzable_files_get_no_prefix() {
+    let (_tmp, pack, out) = setup();
+    write_i16_wav(&pack.join("empty.wav"), RATE, 1, &[]);
+    write_i16_wav(&pack.join("silent.wav"), RATE, 1, &vec![0; RATE as usize]);
+    fs::write(pack.join("broken.wav"), b"definitely not a wav file").unwrap();
+    let plan = plan(&pack, &out, &detecting());
+    assert_eq!(rel_dests(&plan), ["broken.wav", "empty.wav", "silent.wav"]);
+    let analysis = |i: usize| plan.packs[0].jobs[i].analysis.clone().expect("analysed");
+    for i in 0..3 {
+        assert_eq!(analysis(i).prefix, None);
+    }
+    assert!(analysis(0).error.is_some() && analysis(1).error.is_some());
+}
+
+#[test]
+fn detection_names_are_deterministic_across_workers_and_runs() {
+    let (_tmp, pack, out) = setup();
+    detection_pack(&pack);
+    write_sine(&pack.join("Keys/tone.wav"), 261.63, 1.5);
+    write_clicks(&pack.join("Loops/fast.wav"), 128.0, 32);
+    let mut one = detecting();
+    one.workers = 1;
+    let mut eight = detecting();
+    eight.workers = 8;
+    let first = plan(&pack, &out, &one);
+    assert_eq!(plan(&pack, &out, &eight), first);
+    assert_eq!(plan(&pack, &out, &eight), first);
+}
+
+#[test]
+fn cancel_stops_analysis() {
+    let (_tmp, pack, out) = setup();
+    detection_pack(&pack);
+    let out = out.join("new");
+    let result = plan_with(&[pack.clone()], Some(&out), &detecting(), &AnalysisCache::default(), &AtomicBool::new(true), |_| {});
+    assert!(matches!(result, Err(CoreError::Cancelled)), "{result:?}");
+    assert!(!out.exists());
+
+    let calls = AtomicUsize::new(0);
+    let seen = Mutex::new(Vec::new());
+    plan_with(&[pack], Some(&out), &detecting(), &AnalysisCache::default(), &AtomicBool::new(false), |p: PlanProgress| {
+        calls.fetch_add(1, Ordering::SeqCst);
+        seen.lock().unwrap().push(p);
+    })
+    .unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert!(seen.lock().unwrap().contains(&PlanProgress::Analyzing { done: 3, total: 3 }));
+}
+
+#[test]
+fn cache_avoids_second_analysis() {
+    let (_tmp, pack, out) = setup();
+    detection_pack(&pack);
+    let cache = AnalysisCache::default();
+    let run = || plan_with(&[pack.clone()], Some(&out), &detecting(), &cache, &AtomicBool::new(false), |_| {}).unwrap();
+    let first = run();
+    assert_eq!((cache.len(), cache.hits()), (3, 0));
+    assert_eq!(run(), first);
+    assert_eq!((cache.len(), cache.hits()), (3, 3));
+}
+
+#[test]
+fn progress_event_json() {
+    let json = serde_json::to_string(&PlanProgress::Analyzing { done: 1, total: 2 }).unwrap();
+    assert_eq!(json, r#"{"event":"analyzing","done":1,"total":2}"#);
+}
+
+#[test]
+fn name_that_is_only_bpm_becomes_the_prefix() {
+    let (_tmp, pack, out) = setup();
+    write_clicks(&pack.join("Loops/90bpm.wav"), 90.0, 16);
+    assert_eq!(rel_dests(&plan(&pack, &out, &detecting())), ["Loops/90.wav"]);
+    let mut flat = detecting();
+    flat.flatten_folders = true;
+    flat.sanitize_filenames = false;
+    assert_eq!(rel_dests(&plan(&pack, &out, &flat)), ["90_Loops.wav"]);
 }
