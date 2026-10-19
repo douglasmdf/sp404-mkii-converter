@@ -7,6 +7,7 @@
 
 use std::collections::HashSet;
 use std::fs;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -19,7 +20,6 @@ use crate::error::{io_err, CoreError, Result};
 use crate::labeling::{self, Analysis};
 use crate::name_tags::{parse_name, remove_spans, Span};
 use crate::naming::{flatten_stem, sanitize_component, CollisionResolver};
-use crate::tags::prepend;
 
 pub const CONVERTIBLE_EXTENSIONS: &[&str] = &[
     "wav", "wave", "aif", "aiff", "aifc", "flac", "mp3", "m4a", "aac", "ogg", "oga", "caf",
@@ -348,10 +348,10 @@ fn analyze_groups(
                 let entry = &groups[g].entries[i];
                 let tokens = parse_name(&entry.stem);
                 let hints = NameHints::from_path(&entry.hint_dirs, &entry.stem, &tokens);
-                let found = match cache.get_or_analyze(&entry.source, &hints) {
+                let found = guarded(|| match cache.get_or_analyze(&entry.source, &hints) {
                     Ok(detection) => labeling::resolve(&detection, &tokens, settings.bpm_range),
                     Err(e) => (labeling::failed(&e.to_string()), Vec::new()),
-                };
+                });
                 let done_now = done.fetch_add(1, Ordering::SeqCst) + 1;
                 on_progress(PlanProgress::Analyzing { done: done_now, total });
                 Ok(((g, i), found))
@@ -363,6 +363,12 @@ fn analyze_groups(
         out[g][i] = Some(found);
     }
     Ok(out)
+}
+
+/// Runs one file's analysis; a panic (a bug hit by an odd file) becomes a failed analysis
+/// instead of aborting the whole plan.
+fn guarded(analyze: impl FnOnce() -> (Analysis, Vec<Span>)) -> (Analysis, Vec<Span>) {
+    catch_unwind(AssertUnwindSafe(analyze)).unwrap_or_else(|_| (labeling::failed("analysis crashed"), Vec::new()))
 }
 
 /// Decides every output name of a group, in order.
@@ -400,16 +406,15 @@ fn name_entry(resolver: &mut CollisionResolver, entry: Entry, found: Found, dest
         (true, true) => entry.dirs.join("_"),
         (false, _) => stem,
     };
-    let (stem, ext, max_len) = match entry.kind {
+    let file_name = match entry.kind {
         JobKind::Convert => {
             // A name that was only key/BPM becomes just the prefix (`Am 90bpm` → `Am_90`).
             let only_prefix = stem.is_empty() && prefix.is_some();
             let stem = if settings.sanitize_filenames && !only_prefix { sanitize_component(&stem) } else { stem };
-            (prepend(prefix.as_deref(), &stem), String::from("wav"), settings.max_filename_length)
+            resolver.claim_prefixed(&rel_dir, prefix.as_deref(), &stem, "wav", settings.max_filename_length)
         }
-        JobKind::Copy | JobKind::Unsupported => (stem, entry.ext, None),
+        JobKind::Copy | JobKind::Unsupported => resolver.claim(&rel_dir, &stem, &entry.ext, None),
     };
-    let file_name = resolver.claim(&rel_dir, &stem, &ext, max_len);
     let dest = dest_root.join(&rel_dir).join(&file_name);
     let already_exists = dest.exists();
     Job { source: entry.source, dest, kind: entry.kind, already_exists, analysis }
@@ -507,4 +512,17 @@ fn walk(root: &Path, rel: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_panicking_analysis_becomes_a_failure() {
+        let (analysis, spans) = guarded(|| panic!("odd file"));
+        assert_eq!(analysis.error.as_deref(), Some("analysis crashed"));
+        assert_eq!(analysis.prefix, None);
+        assert!(spans.is_empty());
+    }
 }

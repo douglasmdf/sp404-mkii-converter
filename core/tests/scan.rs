@@ -559,3 +559,27 @@ fn name_that_is_only_bpm_becomes_the_prefix() {
     flat.sanitize_filenames = false;
     assert_eq!(rel_dests(&plan(&pack, &out, &flat)), ["90_Loops.wav"]);
 }
+
+#[test]
+fn cache_keeps_failures_too() {
+    let (_tmp, pack, out) = setup();
+    fs::write(pack.join("broken.wav"), b"definitely not a wav file").unwrap();
+    write_i16_wav(&pack.join("silent.wav"), RATE, 1, &vec![0; RATE as usize]);
+    let cache = AnalysisCache::default();
+    let run = || plan_with(&[pack.clone()], Some(&out), &detecting(), &cache, &AtomicBool::new(false), |_| {}).unwrap();
+    let first = run();
+    assert_eq!(cache.hits(), 0);
+    assert_eq!(run(), first);
+    assert_eq!(cache.hits(), 2);
+    assert!(first.packs[0].jobs.iter().all(|j| j.analysis.as_ref().unwrap().error.is_some()));
+}
+
+#[test]
+fn limit_shorter_than_prefix_keeps_it_whole() {
+    let (_tmp, pack, out) = setup();
+    write_clicks(&pack.join("Loops/Loop 140bpm.wav"), 140.0, 16);
+    write_clicks(&pack.join("Loops/Loop_140bpm.wav"), 140.0, 16);
+    let mut s = detecting();
+    s.max_filename_length = Some(2);
+    assert_eq!(rel_dests(&plan(&pack, &out, &s)), ["Loops/140.wav", "Loops/140_2.wav"]);
+}

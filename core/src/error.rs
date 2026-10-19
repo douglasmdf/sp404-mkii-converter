@@ -30,6 +30,9 @@ pub enum CoreError {
     Encode(String),
     #[error("not enough disk space: need {needed} bytes, {available} available")]
     InsufficientSpace { needed: u64, available: u64 },
+    /// A failed analysis remembered by the cache, as its message.
+    #[error("{0}")]
+    Analysis(String),
     #[error("cancelled")]
     Cancelled,
     #[error("the file has no audible sound")]

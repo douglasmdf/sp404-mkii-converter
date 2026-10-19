@@ -5,6 +5,8 @@ use std::path::Path;
 
 use deunicode::deunicode;
 
+use crate::tags::prepend;
+
 const WINDOWS_RESERVED: &[&str] = &[
     "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
@@ -58,12 +60,24 @@ impl CollisionResolver {
     }
 
     pub fn claim(&mut self, dir: &Path, stem: &str, ext: &str, max_len: Option<usize>) -> String {
+        self.claim_prefixed(dir, None, stem, ext, max_len)
+    }
+
+    /// Like `claim` for `<prefix>_<stem>`, but the length limit only ever shortens `stem`: the
+    /// prefix (key/BPM) is kept whole, even when that makes the name longer than `max_len`.
+    pub fn claim_prefixed(&mut self, dir: &Path, prefix: Option<&str>, stem: &str, ext: &str, max_len: Option<usize>) -> String {
         let mut n = 1usize;
         loop {
             let suffix = if n == 1 { String::new() } else { format!("_{n}") };
-            let stem_part = match max_len {
-                Some(max) => truncate_chars(stem, max.saturating_sub(suffix.chars().count())),
-                None => stem.to_string(),
+            let room = max_len.map(|max| max.saturating_sub(suffix.chars().count()));
+            let stem_part = match (prefix, room) {
+                (None, Some(room)) => truncate_chars(stem, room),
+                (None, None) => stem.to_string(),
+                (Some(p), Some(room)) => {
+                    let rest = truncate_chars(stem, room.saturating_sub(p.chars().count() + 1));
+                    prepend(Some(p), &rest)
+                }
+                (Some(p), None) => prepend(Some(p), stem),
             };
             let file_name = if ext.is_empty() {
                 format!("{stem_part}{suffix}")
@@ -185,6 +199,26 @@ mod tests {
         let dir = Path::new("");
         assert_eq!(r.claim(dir, "snare", "wav", Some(4)), "snar.wav");
         assert_eq!(r.claim(dir, "snarex", "wav", Some(4)), "sn_2.wav");
+    }
+
+    #[test]
+    fn max_len_never_cuts_the_prefix() {
+        let mut r = CollisionResolver::new();
+        let dir = Path::new("");
+        assert_eq!(r.claim_prefixed(dir, Some("Gbm_140"), "Loop", "wav", Some(6)), "Gbm_140.wav");
+        assert_eq!(r.claim_prefixed(dir, Some("Gbm_140"), "Loop", "wav", Some(6)), "Gbm_140_2.wav");
+        assert_eq!(r.claim_prefixed(dir, Some("Am_90"), "Melody", "wav", Some(9)), "Am_90_Mel.wav");
+        assert_eq!(r.claim_prefixed(dir, Some("Am_90"), "Melody", "wav", Some(9)), "Am_90_M_2.wav");
+        assert_eq!(r.claim_prefixed(dir, Some("Am_90"), "", "wav", Some(3)), "Am_90.wav");
+    }
+
+    #[test]
+    fn claim_prefixed_without_prefix_is_claim() {
+        let (mut a, mut b) = (CollisionResolver::new(), CollisionResolver::new());
+        let dir = Path::new("x");
+        for stem in ["snare", "snarex", "kick"] {
+            assert_eq!(a.claim_prefixed(dir, None, stem, "wav", Some(4)), b.claim(dir, stem, "wav", Some(4)));
+        }
     }
 
     #[test]

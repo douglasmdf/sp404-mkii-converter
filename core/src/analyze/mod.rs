@@ -44,17 +44,6 @@ pub struct NameHints {
     pub has_bpm_token: bool,
 }
 
-/// Spellings of "one shot" folded into one word before splitting, longest first.
-const JOINED_WORDS: &[(&str, &str)] = &[
-    ("one shots", "oneshot"),
-    ("one-shots", "oneshot"),
-    ("one_shots", "oneshot"),
-    ("oneshots", "oneshot"),
-    ("one shot", "oneshot"),
-    ("one-shot", "oneshot"),
-    ("one_shot", "oneshot"),
-];
-
 impl NameHints {
     /// `rel_dirs` are the folders that count (the caller picks them: for a pack, the pack
     /// folder and its subfolders down to the file; for a loose file, only its own folder).
@@ -76,10 +65,7 @@ impl NameHints {
 /// Lowercase words, split at anything that is not a letter or digit and between letters and
 /// digits (`Kick01` → `kick`, `01`), with "one shot(s)" folded into `oneshot`.
 fn hint_words(text: &str) -> Vec<String> {
-    let mut lower = text.to_lowercase();
-    for (from, to) in JOINED_WORDS {
-        lower = lower.replace(from, to);
-    }
+    let lower = text.to_lowercase();
     let mut words = Vec::new();
     let mut current = String::new();
     for c in lower.chars() {
@@ -96,7 +82,24 @@ fn hint_words(text: &str) -> Vec<String> {
     if !current.is_empty() {
         words.push(current);
     }
-    words
+    fold_one_shot(words)
+}
+
+/// `one` + `shot`/`shots` (separate words) and `oneshots` become `oneshot`.
+fn fold_one_shot(words: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(words.len());
+    for word in words {
+        let joins = matches!(word.as_str(), "shot" | "shots") && out.last().is_some_and(|w| w == "one");
+        if joins {
+            out.pop();
+        }
+        if joins || word == "oneshots" {
+            out.push(String::from("oneshot"));
+        } else {
+            out.push(word);
+        }
+    }
+    out
 }
 
 /// What the analyzer found. Only the fields the kind uses are filled.
@@ -141,10 +144,11 @@ pub(crate) fn analyze_signal(signal: &signal::Signal, hints: &NameHints) -> Dete
 
 /// Detections kept in memory between plans (a Dry Run then a Convert analyse each file once).
 /// Keyed by path, size, modification time and hints (hints change the classification); the
-/// BPM range is applied afterwards, so it is not part of the key. Errors are not kept.
+/// BPM range is applied afterwards, so it is not part of the key. Failures are kept too (as
+/// their message), so a broken file is not decoded again.
 #[derive(Debug, Default)]
 pub struct AnalysisCache {
-    entries: Mutex<HashMap<CacheKey, Detection>>,
+    entries: Mutex<HashMap<CacheKey, std::result::Result<Detection, String>>>,
     hits: AtomicUsize,
 }
 
@@ -164,14 +168,15 @@ impl AnalysisCache {
         let key = CacheKey { path: path.to_path_buf(), size: meta.len(), modified: meta.modified().ok(), hints: hints.clone() };
         if let Some(found) = self.entries.lock().expect("lock").get(&key) {
             self.hits.fetch_add(1, Ordering::SeqCst);
-            return Ok(found.clone());
+            return found.clone().map_err(CoreError::Analysis);
         }
-        let detection = analyze_file(path, hints)?;
-        self.entries.lock().expect("lock").insert(key, detection.clone());
-        Ok(detection)
+        let result = analyze_file(path, hints);
+        let kept = result.as_ref().map(Detection::clone).map_err(CoreError::to_string);
+        self.entries.lock().expect("lock").insert(key, kept);
+        result
     }
 
-    /// Number of detections kept.
+    /// Number of files kept (detections and failures).
     pub fn len(&self) -> usize {
         self.entries.lock().expect("lock").len()
     }
@@ -201,5 +206,16 @@ mod tests {
         assert!(hints.has_word("one shot") && hints.has_word("One-Shot") && hints.has_word("hat"));
         assert!(!hints.has_word("hi-hat"));
         assert!(NameHints::from_path(&[], "808bass", &parse_name("808bass")).has_word("808"));
+    }
+
+    #[test]
+    fn one_shot_folds_only_whole_words() {
+        let words = |text: &str| NameHints::from_path(&[], text, &NameTokens::default()).words;
+        assert_eq!(words("phone shot"), ["phone", "shot"]);
+        assert_eq!(words("someone shots"), ["someone", "shots"]);
+        assert_eq!(words("One-Shots_kick"), ["oneshot", "kick"]);
+        assert_eq!(words("one shot"), ["oneshot"]);
+        assert_eq!(words("OneShots"), ["oneshot"]);
+        assert_eq!(words("one"), ["one"]);
     }
 }
