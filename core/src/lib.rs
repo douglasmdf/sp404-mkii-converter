@@ -10,6 +10,7 @@ pub mod process;
 pub mod runner;
 pub mod scan;
 pub mod space;
+pub mod tags;
 pub mod undo;
 
 pub use error::{CoreError, Result};
