@@ -56,6 +56,7 @@ pub fn f0_track(signal: &Signal) -> Vec<Option<(f32, f32)>> {
 
 /// Note of a pitched one-shot: median f0 of the clear frames after the attack (of the second
 /// half only, when the pitch glides), rounded to the nearest note after removing the tuning.
+/// Sounds shorter than about 80 ms (one YIN frame span) have no f0 frames and return `None`.
 pub fn one_shot_note(signal: &Signal, features: &Features) -> Option<Estimate<PitchClass>> {
     let track = f0_track(signal);
     let range = features.sustained_range();
@@ -213,6 +214,12 @@ mod tests {
     #[test]
     fn glide_808_uses_arrival_note() {
         assert_eq!(note_of(&glide_808(43.0, 36.0, 1.2)).unwrap().value, PitchClass(0));
+    }
+
+    #[test]
+    fn lowest_range_notes() {
+        assert_eq!(note_of(&tone(24.0, 1.5, 8)).unwrap().value, PitchClass(0));
+        assert_eq!(note_of(&glide_808(31.0, 24.0, 1.2)).unwrap().value, PitchClass(0));
     }
 
     #[test]

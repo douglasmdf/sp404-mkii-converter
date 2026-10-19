@@ -25,7 +25,9 @@ const CHORD_MARGIN: f32 = 0.03;
 /// Krumhansl-Kessler key profiles, tonic first.
 const MAJOR_PROFILE: [f32; 12] = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
 const MINOR_PROFILE: [f32; 12] = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
-/// Relative keys closer than this (profile correlation) go to the tie-break.
+/// Relative keys closer than this (profile correlation) go to the tie-break. Diatonic loops
+/// correlate almost as well with the relative key, so with this margin the tie-break, not the
+/// profiles, decides most of them.
 const RELATIVE_MARGIN: f32 = 0.25;
 /// Tie-break weights: tonic in the bass, tonic at the start/end, tonic chord over the loop.
 const TIE_BASS_WEIGHT: f32 = 1.0;
@@ -35,8 +37,12 @@ const TIE_CHORD_WEIGHT: f32 = 1.0;
 const ENDS_SECONDS: f32 = 1.0;
 /// Segment length for counting tonic chords when there are no onsets.
 const SEGMENT_SECONDS: f32 = 0.5;
-/// Final key margin needed to be confident.
+/// Profile margin needed to be confident: over the runner-up, or (after a tie-break) between
+/// the relative pair and the best key outside it.
 const KEY_MARGIN: f32 = 0.05;
+/// After a tie-break, the winner's total must also beat its relative by this much. The
+/// evidence spans 0–3 (three shares weighted 1.0), so this is 5 % of its range.
+const TIE_BREAK_MARGIN: f32 = 0.15;
 /// A pitch class is strong in a frame at this fraction of the frame's loudest class...
 const POLY_STRONG: f32 = 0.5;
 /// ...and stable when strong in at least this share of the sustained frames.
@@ -77,7 +83,10 @@ pub fn estimate_key(features: &Features) -> Option<Estimate<Key>> {
     let total = |key: Key, score: f32| score + tie_break_evidence(features, &chroma, key);
     let (a, b) = (total(best, best_score), total(relative, relative_score));
     let value = if b > a { relative } else { best };
-    Some(Estimate { value, confident: (a - b).abs() >= KEY_MARGIN })
+    // Any key outside the pair that is nearly as good as the pair's best makes the call uncertain.
+    let rival = keys.iter().find(|(k, _)| *k != best && *k != relative).map_or(f32::MIN, |k| k.1);
+    let confident = best_score - rival >= KEY_MARGIN && (a - b).abs() >= TIE_BREAK_MARGIN;
+    Some(Estimate { value, confident })
 }
 
 /// Three or more pitch classes that stay strong together through the sustained part.
@@ -276,6 +285,44 @@ mod tests {
         let (a_minor, c_major) = (Key { tonic: PitchClass(9), minor: true }, Key { tonic: PitchClass(0), minor: false });
         assert!(key_correlation(&chroma, c_major) > key_correlation(&chroma, a_minor));
         assert_eq!(estimate_key(&features).unwrap().value, a_minor);
+    }
+
+    #[test]
+    fn tie_break_can_pick_the_major_key() {
+        // Mirror of the test above: the profiles prefer Am; bass, ends and chord counts say C.
+        let (am, c, f): (&[f32], &[f32], &[f32]) = (&[57.0, 60.0, 64.0], &[60.0, 64.0, 67.0], &[57.0, 60.0, 65.0]);
+        let signal = progression(&[c, am, f, am, c], &[48.0, 45.0, 41.0, 45.0, 48.0], 90.0, 2, 1);
+        let features = extract(&signal);
+        let chroma = sum(&features.chroma);
+        let (a_minor, c_major) = (Key { tonic: PitchClass(9), minor: true }, Key { tonic: PitchClass(0), minor: false });
+        assert!(key_correlation(&chroma, a_minor) > key_correlation(&chroma, c_major));
+        assert_eq!(estimate_key(&features).unwrap().value, c_major);
+    }
+
+    #[test]
+    fn near_tie_with_another_key_is_not_confident() {
+        // Built from profiles: C is best, its relative Am is close enough for the tie-break,
+        // and Em (not part of that pair) is within a hair of C, so the result is uncertain.
+        let major = |t: usize| -> [f32; 12] { std::array::from_fn(|pc| MAJOR_PROFILE[(pc + 12 - t) % 12]) };
+        let minor = |t: usize| -> [f32; 12] { std::array::from_fn(|pc| MINOR_PROFILE[(pc + 12 - t) % 12]) };
+        let frame: [f32; 12] =
+            std::array::from_fn(|pc| major(0)[pc] + 3.0 * minor(9)[pc] + 0.95 * (major(7)[pc] + 3.0 * minor(4)[pc]));
+        let n = 100;
+        let features = Features {
+            hop_seconds: 0.023,
+            onset_env: vec![0.0; n],
+            onsets: Vec::new(),
+            chroma: vec![frame; n],
+            bass_chroma: vec![[0.0; 12]; n],
+            tuning_cents: 0.0,
+            rms: vec![0.1; n],
+        };
+        let key = |t: u8, minor: bool| Key { tonic: PitchClass(t), minor };
+        let corr = |k: Key| key_correlation(&frame, k);
+        assert!(corr(key(0, false)) > corr(key(4, true)) && corr(key(0, false)) - corr(key(4, true)) < 0.02);
+        assert!(corr(key(0, false)) - corr(key(9, true)) < RELATIVE_MARGIN, "must take the tie-break path");
+        let found = estimate_key(&features).unwrap();
+        assert!(!found.confident, "{found:?}");
     }
 
     #[test]
