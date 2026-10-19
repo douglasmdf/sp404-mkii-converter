@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use sp404_core::config::Settings;
 use sp404_core::runner::{self, Event, Summary};
-use sp404_core::scan::{self, PackSummary, Plan};
+use sp404_core::scan::{self, InputsSummary, Plan};
 use sp404_core::undo::{self, UndoReport};
 use sp404_core::space;
 use tauri::ipc::Channel;
@@ -48,8 +48,8 @@ fn save_settings(settings: Settings) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn inspect_packs(paths: Vec<PathBuf>) -> Result<Vec<PackSummary>, String> {
-    paths.iter().map(|p| scan::inspect_pack(p).map_err(|e| e.to_string())).collect()
+fn inspect_inputs(paths: Vec<PathBuf>) -> Result<InputsSummary, String> {
+    scan::inspect_inputs(&paths).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -99,7 +99,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
-            inspect_packs,
+            inspect_inputs,
             plan_conversion,
             convert,
             cancel_conversion,

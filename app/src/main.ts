@@ -16,7 +16,8 @@ const convertBtn = byId<HTMLButtonElement>("convert-btn");
 const dryRunBtn = byId<HTMLButtonElement>("dry-run-btn");
 const undoBtn = byId<HTMLButtonElement>("undo-btn");
 const clearBtn = byId<HTMLButtonElement>("clear-btn");
-const browseBtn = byId<HTMLButtonElement>("browse-btn");
+const addFoldersBtn = byId<HTMLButtonElement>("add-folders-btn");
+const addFilesBtn = byId<HTMLButtonElement>("add-files-btn");
 const cancelBtn = byId<HTMLButtonElement>("cancel-btn");
 const settingsBtn = byId<HTMLButtonElement>("settings-btn");
 const settingsDialog = byId<HTMLDialogElement>("settings-dialog");
@@ -24,7 +25,14 @@ const settingsForm = byId<HTMLFormElement>("settings-form");
 const chooseFixedBtn = byId<HTMLButtonElement>("choose-fixed-btn");
 const fixedDirLabel = byId<HTMLElement>("fixed-dir-label");
 
+// Keep in sync with CONVERTIBLE_EXTENSIONS and UNSUPPORTED_AUDIO_EXTENSIONS in core/src/scan.rs.
+const AUDIO_EXTENSIONS = [
+  "wav", "wave", "aif", "aiff", "aifc", "flac", "mp3", "m4a", "aac", "ogg", "oga", "caf",
+  "opus", "wma", "ape", "wv", "mpc", "ra", "amr", "dsf", "dff",
+];
+
 let packs: PackSummary[] = [];
+let looseFiles: string[] = [];
 let settings: Settings;
 let busy = false;
 
@@ -40,11 +48,12 @@ const relative = (path: string, root: string) =>
   path.startsWith(root) ? path.slice(root.length).replace(/^[\\/]/, "") : path;
 
 function refreshButtons() {
-  const empty = packs.length === 0;
+  const empty = packs.length === 0 && looseFiles.length === 0;
   convertBtn.disabled = busy || empty;
   dryRunBtn.disabled = busy || empty;
   clearBtn.disabled = busy || empty;
-  browseBtn.disabled = busy;
+  addFoldersBtn.disabled = busy;
+  addFilesBtn.disabled = busy;
   settingsBtn.disabled = busy;
 }
 
@@ -81,36 +90,69 @@ function renderPacks() {
       return item;
     }),
   );
-  dropZone.classList.toggle("compact", packs.length > 0);
+  if (looseFiles.length > 0) {
+    const item = el("li");
+    const remove = el("button", "×", "icon");
+    remove.title = t("remove");
+    remove.addEventListener("click", () => {
+      looseFiles = [];
+      renderPacks();
+    });
+    item.append(el("strong", t("looseEntry", { count: looseFiles.length })), remove);
+    packList.append(item);
+  }
+  dropZone.classList.toggle("compact", packs.length > 0 || looseFiles.length > 0);
   refreshButtons();
 }
 
 async function addPaths(paths: string[]) {
-  const fresh = paths.filter((p) => !packs.some((pack) => pack.path === p));
+  const fresh = paths.filter((p) => !packs.some((pack) => pack.path === p) && !looseFiles.includes(p));
   if (fresh.length === 0 || busy) return;
   try {
-    packs = packs.concat(await api.inspectPacks(fresh));
+    const summary = await api.inspectInputs(fresh);
+    const folderPaths = new Set(summary.packs.map((pack) => pack.path));
+    const rejected = new Set(summary.rejected);
+    packs = packs.concat(summary.packs);
+    for (const path of fresh) {
+      if (!folderPaths.has(path) && !rejected.has(path) && !looseFiles.includes(path)) looseFiles.push(path);
+    }
     renderPacks();
-    output.replaceChildren();
+    if (summary.rejected.length > 0) {
+      showMessage(summary.rejected.map((path) => t("notAudio", { name: fileName(path) })).join("\n"), "error");
+    } else {
+      output.replaceChildren();
+    }
   } catch (error) {
     showMessage(String(error), "error");
   }
 }
 
-async function browse() {
+async function addFolders() {
   if (busy) return;
-  const picked = await open({ directory: true, multiple: true, title: t("browse") });
+  const picked = await open({ directory: true, multiple: true, title: t("addFolders") });
+  if (picked) await addPaths(Array.isArray(picked) ? picked : [picked]);
+}
+
+async function addFiles() {
+  if (busy) return;
+  const picked = await open({
+    directory: false,
+    multiple: true,
+    title: t("addFiles"),
+    filters: [{ name: "Audio", extensions: AUDIO_EXTENSIONS }],
+  });
   if (picked) await addPaths(Array.isArray(picked) ? picked : [picked]);
 }
 
 async function buildPlan(): Promise<Plan | undefined> {
   let outputDir: string | null = null;
-  if (settings.saveMode === "ask") {
-    const picked = await open({ directory: true, multiple: false, title: t("chooseOutput") });
+  if (settings.saveMode === "ask" || looseFiles.length > 0) {
+    const title = packs.length === 0 ? t("chooseOutputLoose") : t("chooseOutput");
+    const picked = await open({ directory: true, multiple: false, title });
     if (typeof picked !== "string") return undefined;
     outputDir = picked;
   }
-  return api.planConversion(packs.map((p) => p.path), outputDir);
+  return api.planConversion([...packs.map((p) => p.path), ...looseFiles], outputDir);
 }
 
 function renderPlan(plan: Plan) {
@@ -121,7 +163,7 @@ function renderPlan(plan: Plan) {
     for (const job of pack.jobs) {
       const note = job.kind === "unsupported" ? ` — ${t("unsupported")}` : job.alreadyExists ? ` — ${t("willSkip")}` : "";
       const cls = job.kind === "unsupported" ? "error" : job.alreadyExists ? "muted" : undefined;
-      list.append(el("li", `${relative(job.source, pack.sourceRoot)} → ${relative(job.dest, pack.destRoot)}${note}`, cls));
+      list.append(el("li", `${pack.loose ? job.source : relative(job.source, pack.sourceRoot)} → ${relative(job.dest, pack.destRoot)}${note}`, cls));
     }
     nodes.push(list);
   }
@@ -129,7 +171,7 @@ function renderPlan(plan: Plan) {
 }
 
 async function dryRun() {
-  if (busy || packs.length === 0) return;
+  if (busy || (packs.length === 0 && looseFiles.length === 0)) return;
   try {
     const plan = await buildPlan();
     if (plan) renderPlan(plan);
@@ -188,7 +230,7 @@ function renderSummary(summary: Summary) {
 }
 
 async function convertAll() {
-  if (busy || packs.length === 0) return;
+  if (busy || (packs.length === 0 && looseFiles.length === 0)) return;
   // Claim before any await so a double click or a repeated shortcut cannot start a second run.
   busy = true;
   refreshButtons();
@@ -284,13 +326,15 @@ async function init() {
   renderPacks();
   await refreshUndo();
 
-  browseBtn.addEventListener("click", () => void browse());
+  addFoldersBtn.addEventListener("click", () => void addFolders());
+  addFilesBtn.addEventListener("click", () => void addFiles());
   dryRunBtn.addEventListener("click", () => void dryRun());
   convertBtn.addEventListener("click", () => void convertAll());
   undoBtn.addEventListener("click", () => void undoLast());
   cancelBtn.addEventListener("click", () => void api.cancelConversion());
   clearBtn.addEventListener("click", () => {
     packs = [];
+    looseFiles = [];
     renderPacks();
     output.replaceChildren();
   });
@@ -311,7 +355,7 @@ async function init() {
     if (!(event.metaKey || event.ctrlKey)) return;
     if (event.key.toLowerCase() === "o") {
       event.preventDefault();
-      void browse();
+      void (event.shiftKey ? addFiles() : addFolders());
     } else if (event.key === "Enter") {
       event.preventDefault();
       void convertAll();

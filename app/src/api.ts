@@ -22,6 +22,12 @@ export interface PackSummary {
   unsupportedFiles: number;
 }
 
+export interface InputsSummary {
+  packs: PackSummary[];
+  loose: PackSummary | null;
+  rejected: string[];
+}
+
 export type JobKind = "convert" | "copy" | "unsupported";
 
 export interface Job {
@@ -36,6 +42,7 @@ export interface PackPlan {
   sourceRoot: string;
   destRoot: string;
   jobs: Job[];
+  loose: boolean;
 }
 
 export interface Plan {
@@ -86,7 +93,7 @@ export interface UndoReport {
 
 export const getSettings = () => invoke<Settings>("get_settings");
 export const saveSettings = (settings: Settings) => invoke<void>("save_settings", { settings });
-export const inspectPacks = (paths: string[]) => invoke<PackSummary[]>("inspect_packs", { paths });
+export const inspectInputs = (paths: string[]) => invoke<InputsSummary>("inspect_inputs", { paths });
 export const planConversion = (paths: string[], outputDir: string | null) =>
   invoke<Plan>("plan_conversion", { paths, outputDir });
 export const cancelConversion = () => invoke<void>("cancel_conversion");
