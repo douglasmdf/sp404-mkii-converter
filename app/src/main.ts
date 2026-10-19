@@ -1,7 +1,7 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import * as api from "./api";
-import type { FileResult, PackSummary, Plan, SaveMode, Settings, Summary, Warning } from "./api";
+import type { Analysis, BpmRange, FileResult, PackSummary, Plan, SaveMode, Settings, Summary, Warning } from "./api";
 import { applyI18n, t } from "./i18n";
 
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -144,6 +144,20 @@ async function addFiles() {
   if (picked) await addPaths(Array.isArray(picked) ? picked : [picked]);
 }
 
+const CANCELLED = "cancelled";
+
+// Events from parallel workers can arrive out of order: show the highest count seen, never less.
+function analysisProgress(): (event: api.PlanEvent) => void {
+  let best = 0;
+  return (event) => {
+    best = Math.max(best, event.done);
+    progressBar.max = Math.max(event.total, 1);
+    progressBar.value = best;
+    progressLabel.textContent = t("analyzing", { done: best, total: event.total });
+  };
+}
+
+/** Builds the plan while showing the analysis progress; `undefined` when the user cancelled anywhere. */
 async function buildPlan(): Promise<Plan | undefined> {
   let outputDir: string | null = null;
   if (settings.saveMode === "ask" || looseFiles.length > 0) {
@@ -152,7 +166,30 @@ async function buildPlan(): Promise<Plan | undefined> {
     if (typeof picked !== "string") return undefined;
     outputDir = picked;
   }
-  return api.planConversion([...packs.map((p) => p.path), ...looseFiles], outputDir);
+  setBusy(true);
+  progressBar.max = 1;
+  progressBar.value = 0;
+  progressLabel.textContent = "";
+  output.replaceChildren();
+  try {
+    return await api.planConversion([...packs.map((p) => p.path), ...looseFiles], outputDir, analysisProgress());
+  } catch (error) {
+    if (String(error) === CANCELLED) {
+      showMessage(t("analysisCancelled"));
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function uncertaintyNotes(analysis: Analysis | undefined): string[] {
+  if (!analysis) return [];
+  if (analysis.error) return [t("notAnalyzed", { reason: analysis.error })];
+  const notes: string[] = [];
+  if (analysis.labelUncertain) notes.push(t("keyUncertain"));
+  if (analysis.bpmUncertain) notes.push(t("bpmUncertain"));
+  if (analysis.kindUncertain) notes.push(t("typeUncertain"));
+  return notes;
 }
 
 function renderPlan(plan: Plan) {
@@ -161,8 +198,11 @@ function renderPlan(plan: Plan) {
     nodes.push(el("h3", `${pack.name} → ${pack.destRoot}`));
     const list = el("ul", undefined, "file-list");
     for (const job of pack.jobs) {
-      const note = job.kind === "unsupported" ? ` — ${t("unsupported")}` : job.alreadyExists ? ` — ${t("willSkip")}` : "";
-      const cls = job.kind === "unsupported" ? "error" : job.alreadyExists ? "muted" : undefined;
+      const uncertain = uncertaintyNotes(job.analysis);
+      let note = job.kind === "unsupported" ? ` — ${t("unsupported")}` : job.alreadyExists ? ` — ${t("willSkip")}` : "";
+      if (uncertain.length > 0) note += ` — ${uncertain.join("; ")}`;
+      let cls = job.kind === "unsupported" ? "error" : job.alreadyExists ? "muted" : undefined;
+      if (!cls && uncertain.length > 0) cls = "warning";
       list.append(el("li", `${pack.loose ? job.source : relative(job.source, pack.sourceRoot)} → ${relative(job.dest, pack.destRoot)}${note}`, cls));
     }
     nodes.push(list);
@@ -172,11 +212,16 @@ function renderPlan(plan: Plan) {
 
 async function dryRun() {
   if (busy || (packs.length === 0 && looseFiles.length === 0)) return;
+  // Claim before any await (the folder dialog) so a double click cannot start a second run.
+  busy = true;
+  refreshButtons();
   try {
     const plan = await buildPlan();
     if (plan) renderPlan(plan);
   } catch (error) {
     showMessage(String(error), "error");
+  } finally {
+    setBusy(false);
   }
 }
 
@@ -220,6 +265,13 @@ function renderSummary(summary: Summary) {
       }),
     ),
   ];
+  const uncertain = summary.results.filter((result) => uncertaintyNotes(result.analysis).length > 0);
+  if (uncertain.length > 0) {
+    nodes.push(el("p", t("uncertainCount", { count: uncertain.length }), "warning"));
+    const list = el("ul", undefined, "file-list");
+    list.append(...uncertain.map((result) => el("li", `${fileName(result.dest)} — ${uncertaintyNotes(result.analysis).join("; ")}`, "warning")));
+    nodes.push(list);
+  }
   const problems = summary.results.map(describeResult).filter((item): item is HTMLElement => item !== undefined);
   if (problems.length > 0) {
     const list = el("ul", undefined, "file-list");
@@ -241,8 +293,7 @@ async function convertAll() {
     showMessage(String(error), "error");
   }
   if (!plan) {
-    busy = false;
-    refreshButtons();
+    setBusy(false);
     return;
   }
   setBusy(true);
@@ -279,7 +330,7 @@ async function undoLast() {
   await refreshUndo();
 }
 
-const BOOLEAN_SETTINGS = ["sanitizeFilenames", "sanitizeFolderNames", "flattenFolders", "downmixMultichannel", "writeJsonLog"] as const;
+const BOOLEAN_SETTINGS = ["sanitizeFilenames", "sanitizeFolderNames", "flattenFolders", "downmixMultichannel", "writeJsonLog", "detectKeyBpm"] as const;
 
 function field<T extends HTMLInputElement | HTMLSelectElement>(name: string): T {
   return settingsForm.elements.namedItem(name) as T;
@@ -289,6 +340,8 @@ function fillSettingsForm() {
   for (const key of BOOLEAN_SETTINGS) field<HTMLInputElement>(key).checked = settings[key];
   field<HTMLInputElement>("maxFilenameLength").value = settings.maxFilenameLength?.toString() ?? "";
   field<HTMLSelectElement>("saveMode").value = settings.saveMode;
+  field<HTMLSelectElement>("bpmRange").value = settings.bpmRange;
+  field<HTMLSelectElement>("bpmRange").disabled = !settings.detectKeyBpm;
   field<HTMLInputElement>("workers").value = String(settings.workers);
   fixedDirLabel.textContent = settings.fixedDirectory ?? t("notSet");
 }
@@ -300,6 +353,7 @@ function readSettingsForm(): Settings {
     ...settings,
     maxFilenameLength: Number.isFinite(maxLength) && maxLength > 0 ? maxLength : null,
     saveMode: field<HTMLSelectElement>("saveMode").value as SaveMode,
+    bpmRange: field<HTMLSelectElement>("bpmRange").value as BpmRange,
     workers: Number.isFinite(workers) && workers > 0 ? Math.min(workers, 32) : 1,
   };
   for (const key of BOOLEAN_SETTINGS) next[key] = field<HTMLInputElement>(key).checked;
@@ -341,6 +395,7 @@ async function init() {
   settingsBtn.addEventListener("click", openSettings);
   settingsForm.addEventListener("change", () => {
     settings = readSettingsForm();
+    field<HTMLSelectElement>("bpmRange").disabled = !settings.detectKeyBpm;
     void persistSettings();
   });
   chooseFixedBtn.addEventListener("click", async () => {

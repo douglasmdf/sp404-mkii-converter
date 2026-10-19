@@ -1,5 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 
+export type BpmRange = "58-115" | "68-135" | "78-166" | "88-175" | "98-195";
+
 export type SaveMode = "ask" | "fixed" | "nextToSource";
 
 export interface Settings {
@@ -12,6 +14,8 @@ export interface Settings {
   fixedDirectory: string | null;
   workers: number;
   writeJsonLog: boolean;
+  detectKeyBpm: boolean;
+  bpmRange: BpmRange;
 }
 
 export interface PackSummary {
@@ -28,6 +32,22 @@ export interface InputsSummary {
   rejected: string[];
 }
 
+export type SampleKind = "unpitched" | "note" | "chord" | "phrase" | "melodicLoop" | "drumLoop";
+
+export interface Analysis {
+  kind: SampleKind;
+  label: string | null;
+  bpm: number | null;
+  kindUncertain: boolean;
+  labelUncertain: boolean;
+  bpmUncertain: boolean;
+  labelFromName: boolean;
+  bpmFromName: boolean;
+  prefix: string | null;
+  error: string | null;
+  analyzerVersion: number;
+}
+
 export type JobKind = "convert" | "copy" | "unsupported";
 
 export interface Job {
@@ -35,6 +55,7 @@ export interface Job {
   dest: string;
   kind: JobKind;
   alreadyExists: boolean;
+  analysis?: Analysis;
 }
 
 export interface PackPlan {
@@ -66,6 +87,7 @@ export interface FileResult {
   dest: string;
   status: FileStatus;
   warnings: Warning[];
+  analysis?: Analysis;
 }
 
 export interface Summary {
@@ -83,6 +105,8 @@ export type ConvertEvent =
   | { event: "fileDone"; done: number; total: number; result: FileResult }
   | { event: "finished"; summary: Summary };
 
+export type PlanEvent = { event: "analyzing"; done: number; total: number };
+
 export interface UndoReport {
   removed: number;
   keptModified: string[];
@@ -94,8 +118,15 @@ export interface UndoReport {
 export const getSettings = () => invoke<Settings>("get_settings");
 export const saveSettings = (settings: Settings) => invoke<void>("save_settings", { settings });
 export const inspectInputs = (paths: string[]) => invoke<InputsSummary>("inspect_inputs", { paths });
-export const planConversion = (paths: string[], outputDir: string | null) =>
-  invoke<Plan>("plan_conversion", { paths, outputDir });
+export function planConversion(
+  paths: string[],
+  outputDir: string | null,
+  onEvent: (event: PlanEvent) => void,
+): Promise<Plan> {
+  const channel = new Channel<PlanEvent>();
+  channel.onmessage = onEvent;
+  return invoke<Plan>("plan_conversion", { paths, outputDir, onEvent: channel });
+}
 export const cancelConversion = () => invoke<void>("cancel_conversion");
 export const undoLast = (removeEmptyDirs: boolean) => invoke<UndoReport | null>("undo_last", { removeEmptyDirs });
 export const hasUndo = () => invoke<boolean>("has_undo");

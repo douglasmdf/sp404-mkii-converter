@@ -50,6 +50,15 @@ const en = {
   sChoose: "Choose…",
   sWorkers: "Files converted at the same time",
   sJsonLog: "Write conversion_results.json",
+  sDetectKeyBpm: "Detect key and BPM and add them to the start of file names",
+  sBpmRange: "BPM range",
+  analyzing: "Analyzing {done} / {total}…",
+  analysisCancelled: "Analysis cancelled. Nothing was written.",
+  keyUncertain: "key uncertain",
+  bpmUncertain: "BPM uncertain",
+  typeUncertain: "type uncertain",
+  notAnalyzed: "not analyzed: {reason}",
+  uncertainCount: "{count} files with uncertain key/BPM — worth checking by ear",
 };
 
 type Key = keyof typeof en;
@@ -106,6 +115,15 @@ const pt: Record<Key, string> = {
   sChoose: "Escolher…",
   sWorkers: "Arquivos convertidos ao mesmo tempo",
   sJsonLog: "Gravar conversion_results.json",
+  sDetectKeyBpm: "Detectar tom e BPM e incluir no início do nome",
+  sBpmRange: "Faixa de BPM",
+  analyzing: "Analisando {done} / {total}…",
+  analysisCancelled: "Análise cancelada. Nada foi gravado.",
+  keyUncertain: "tom incerto",
+  bpmUncertain: "BPM incerto",
+  typeUncertain: "tipo incerto",
+  notAnalyzed: "não analisado: {reason}",
+  uncertainCount: "{count} arquivos com tom/BPM incerto — vale conferir de ouvido",
 };
 
 const isPortuguese = navigator.language.toLowerCase().startsWith("pt");

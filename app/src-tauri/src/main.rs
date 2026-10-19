@@ -4,9 +4,10 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use sp404_core::analyze::AnalysisCache;
 use sp404_core::config::Settings;
 use sp404_core::runner::{self, Event, Summary};
-use sp404_core::scan::{self, InputsSummary, Plan};
+use sp404_core::scan::{self, InputsSummary, Plan, PlanProgress};
 use sp404_core::undo::{self, UndoReport};
 use sp404_core::space;
 use tauri::ipc::Channel;
@@ -16,6 +17,8 @@ use tauri::State;
 struct AppState {
     cancel: Arc<AtomicBool>,
     running: Arc<AtomicBool>,
+    /// Analysis results shared by every Dry Run and conversion, so a file is analysed once.
+    cache: Arc<AnalysisCache>,
 }
 
 /// Held for the whole conversion; a second `convert` while one runs is refused.
@@ -53,8 +56,26 @@ fn inspect_inputs(paths: Vec<PathBuf>) -> Result<InputsSummary, String> {
 }
 
 #[tauri::command]
-fn plan_conversion(paths: Vec<PathBuf>, output_dir: Option<PathBuf>) -> Result<Plan, String> {
-    scan::build_plan(&paths, output_dir.as_deref(), &Settings::load()).map_err(|e| e.to_string())
+async fn plan_conversion(
+    paths: Vec<PathBuf>,
+    output_dir: Option<PathBuf>,
+    on_event: Channel<PlanProgress>,
+    state: State<'_, AppState>,
+) -> Result<Plan, String> {
+    let guard = RunGuard::acquire(&state.running).ok_or("another operation is already running")?;
+    let settings = Settings::load();
+    let cancel = state.cancel.clone();
+    cancel.store(false, Ordering::SeqCst);
+    let cache = state.cache.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        scan::plan_with(&paths, output_dir.as_deref(), &settings, &cache, &cancel, |progress| {
+            let _ = on_event.send(progress);
+        })
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
