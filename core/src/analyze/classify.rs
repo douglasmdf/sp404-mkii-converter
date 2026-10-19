@@ -7,7 +7,7 @@
 //! The answer is uncertain when the sound is not strong and the hints did not agree with it.
 
 use super::features::Features;
-use super::harmony::is_polyphonic;
+use super::harmony::{is_polyphonic, stable_class_spread};
 use super::pitch::{f0_track, pitch_stability};
 use super::signal::Signal;
 use super::tempo::periodicity;
@@ -23,7 +23,14 @@ pub(crate) struct Sound {
     pub stability: f32,
     pub tonality: f32,
     pub polyphonic: bool,
+    /// Seconds between the stable pitch classes entering (see `stable_class_spread`).
+    pub spread: f32,
     pub held_notes: usize,
+    /// Share of the voiced frames whose f0 is clear.
+    pub clear_share: f32,
+    pub f0_hz: f32,
+    /// Share of the frames in the sustained part (after the loudest frame).
+    pub sustained_share: f32,
     pub partials: f32,
     pub glide: f32,
 }
@@ -37,7 +44,11 @@ pub(crate) fn measure(signal: &Signal, features: &Features, periodicity: f32) ->
         stability: pitch_stability(&track),
         tonality: tonality(features),
         polyphonic: is_polyphonic(features),
+        spread: stable_class_spread(features),
         held_notes: held_notes(&track),
+        clear_share: clear_share(&track),
+        f0_hz: median_clear_f0(&track),
+        sustained_share: features.sustained_range().len() as f32 / features.rms.len().max(1) as f32,
         partials: features.sustained_partials,
         glide: glide(&track, features.tuning_cents),
     }
@@ -71,6 +82,19 @@ fn glide(track: &[Option<(f32, f32)>], tuning_cents: f32) -> f32 {
         return 0.0;
     }
     ramp(cents, GLIDE_NONE_CENTS, GLIDE_FULL_CENTS)
+}
+
+/// Share of the voiced frames with a clear f0; 0 with fewer than `CLEAR_MIN_FRAMES` clear frames.
+fn clear_share(track: &[Option<(f32, f32)>]) -> f32 {
+    let voiced = track.iter().flatten().count();
+    let clear = track.iter().flatten().filter(|(_, c)| *c >= HELD_CLARITY).count();
+    if clear < CLEAR_MIN_FRAMES { 0.0 } else { clear as f32 / voiced as f32 }
+}
+
+fn median_clear_f0(track: &[Option<(f32, f32)>]) -> f32 {
+    let mut hz: Vec<f32> = track.iter().flatten().filter(|(_, c)| *c >= HELD_CLARITY).map(|(h, _)| *h).collect();
+    hz.sort_by(f32::total_cmp);
+    hz.get(hz.len() / 2).copied().unwrap_or(0.0)
 }
 
 /// Energy-weighted share of each chroma frame held by its three strongest pitch classes:
@@ -151,6 +175,24 @@ const PITCH_FULL_SECONDS: f32 = 0.25;
 const PITCH_STRONG: f32 = 0.7;
 const PITCH_MIDPOINT: f32 = 0.45;
 const PITCH_WEAK: f32 = 0.2;
+/// ...or the share of clear f0 frames mapped from these bounds, for sounds whose f0 is above
+/// `CLEAR_MIN_HZ` (a short pluck has too few frames for the other measures, `OP1_Pluck`; a
+/// kick's body has a clear f0 too, but around 40 Hz)...
+const CLEAR_NONE: f32 = 0.6;
+const CLEAR_FULL: f32 = 1.0;
+const CLEAR_MIN_FRAMES: usize = 2;
+const CLEAR_MIN_HZ: f32 = 80.0;
+const CLEAR_FULL_HZ: f32 = 150.0;
+/// ...or the number of distinct held notes mapped from these bounds (drum loops hold at most
+/// 5, as pitched congas and toms do; melodic loops with drums such as `Do the Thing` hold 10+).
+const HELD_NONE: f32 = 5.0;
+const HELD_FULL: f32 = 9.0;
+/// Note, chord or phrase is judged on the sustained part; when it is shorter than this share
+/// of the sound (the loudest moment comes late, as in a reversed sample: `OP1_Reverse Organ`,
+/// `OP1_HiPad`) that judgement is uncertain.
+const MIN_SUSTAINED_SHARE: f32 = 0.25;
+/// Notes of a chord that enter further apart than this (seconds) make a phrase (arpeggio).
+const ARPEGGIO_SPREAD: f32 = 0.18;
 /// Polyphony counts as a clear pitch for the f0 measure only when the sound is this tonal
 /// (noise is "polyphonic" too).
 const CHORD_MIN_TONALITY: f32 = 0.7;
@@ -197,11 +239,14 @@ pub(crate) fn classify_with(signal: &Signal, features: &Features, hints: &NameHi
         (true, false) => (SampleKind::DrumLoop, sure),
         (false, false) => (SampleKind::Unpitched, sure),
         (false, true) => {
+            let sure = sure && sound.sustained_share >= MIN_SUSTAINED_SHARE;
             // The sound already passed the pitched question, so polyphony alone means a chord
             // (the tonality bound would reject chords of four or more notes, whose energy is
             // spread over more than three pitch classes: `Horn Stab wBass`).
-            if sound.polyphonic {
+            if sound.polyphonic && sound.spread <= ARPEGGIO_SPREAD {
                 (SampleKind::Chord, sure)
+            } else if sound.polyphonic {
+                (SampleKind::Phrase, sure)
             } else if sound.held_notes >= PHRASE_MIN_NOTES && sound.onsets >= PHRASE_MIN_ONSETS {
                 // Just two held notes may be one note read twice (octave or tuning slips).
                 (SampleKind::Phrase, sure && sound.held_notes > PHRASE_MIN_NOTES)
@@ -240,7 +285,11 @@ fn pitch_score(sound: &Sound) -> f32 {
     let tonal = ramp(sound.tonality, TONALITY_NONE, TONALITY_FULL);
     let clear = if sound.polyphonic && sound.tonality >= CHORD_MIN_TONALITY { 1.0 } else { sound.stability };
     let f0 = tonal * clear * ramp(sound.seconds, 0.0, PITCH_FULL_SECONDS);
-    f0.max(ramp(sound.partials, PARTIALS_NONE, PARTIALS_FULL)) * (1.0 - sound.glide)
+    let clear_f0 = ramp(sound.clear_share, CLEAR_NONE, CLEAR_FULL)
+        * ramp(sound.f0_hz, CLEAR_MIN_HZ, CLEAR_FULL_HZ)
+        * ramp(sound.seconds, 0.0, PITCH_FULL_SECONDS);
+    let held = ramp(sound.held_notes as f32, HELD_NONE, HELD_FULL);
+    f0.max(ramp(sound.partials, PARTIALS_NONE, PARTIALS_FULL)).max(clear_f0).max(held) * (1.0 - sound.glide)
 }
 
 /// `(answer, confident)` for one question; see the module comment.
@@ -271,7 +320,7 @@ fn sign(v: i32) -> i32 {
 mod tests {
     use super::*;
     use crate::analyze::features::extract;
-    use crate::analyze::synth::{arpeggio, chord, click_loop, noise_hit, progression, tone};
+    use crate::analyze::synth::{arpeggio, chord, click_loop, noise_hit, progression, rolled_chord, tone};
     use crate::name_tags::parse_name;
 
     fn kind(signal: &Signal, hints: &NameHints) -> SampleKind {
@@ -350,6 +399,14 @@ mod tests {
     }
 
     #[test]
+    fn notes_entering_one_by_one_make_a_phrase() {
+        let none = NameHints::default();
+        let notes = [57.0, 60.0, 64.0, 67.0];
+        assert_eq!(kind(&rolled_chord(&notes, 0.02, 2.5), &none), SampleKind::Chord);
+        assert_eq!(kind(&rolled_chord(&notes, 0.3, 2.5), &none), SampleKind::Phrase);
+    }
+
+    #[test]
     fn a_siren_has_no_note() {
         let s = siren();
         let found = classify(&s, &extract(&s), &NameHints::default());
@@ -364,9 +421,12 @@ mod tests {
 
     #[test]
     fn disagreeing_hints_on_weak_sound_are_not_confident() {
+        // Since analyzer v3 the short sine leans pitched (a 0.15 s pluck is a note:
+        // `OP1_Pluck`), so the disagreeing hint is a drum word; either way the lean is weak.
         let short = short_sine();
-        let found = classify(&short, &extract(&short), &hints(&[], "808"));
         let leaning = classify(&short, &extract(&short), &NameHints::default());
+        let word = if leaning.value == SampleKind::Note { "kick" } else { "808" };
+        let found = classify(&short, &extract(&short), &hints(&[], word));
         assert_ne!(found.value, leaning.value);
         assert!(!found.confident);
         // Strong sound wins over hints and stays confident.

@@ -44,6 +44,17 @@ pub(crate) fn chord(midis: &[f32], seconds: f32) -> Signal {
     signal(normalized(out))
 }
 
+/// A chord whose notes enter `step` seconds apart and then all ring to the end (a rolled
+/// chord, or an arpeggio played through a long delay).
+pub(crate) fn rolled_chord(midis: &[f32], step: f32, seconds: f32) -> Signal {
+    let mut out = vec![0.0; frames(seconds)];
+    for (i, &m) in midis.iter().enumerate() {
+        let start = frames(i as f32 * step);
+        add_at(&mut out, start, &tone_samples(m, seconds - i as f32 * step, 4, 1.0), 1.0);
+    }
+    signal(normalized(out))
+}
+
 /// The notes one after the other.
 pub(crate) fn arpeggio(midis: &[f32], note_seconds: f32) -> Signal {
     let samples = midis.iter().flat_map(|&m| tone_samples(m, note_seconds, 4, 3.0)).collect();

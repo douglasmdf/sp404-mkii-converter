@@ -39,18 +39,24 @@ const TIE_CHORD_WEIGHT: f32 = 1.0;
 const ENDS_SECONDS: f32 = 1.0;
 /// Segment length for counting tonic chords when there are no onsets.
 const SEGMENT_SECONDS: f32 = 0.5;
-/// Profile margin needed to be confident: over the runner-up, or (after a tie-break) between
-/// the relative pair and the best key outside it.
-const KEY_MARGIN: f32 = 0.05;
-/// After a tie-break, the winner's total must also beat its relative by this much. The
-/// evidence spans 0–3 (three shares weighted 1.0), so this is 5 % of its range.
-const TIE_BREAK_MARGIN: f32 = 0.15;
+/// Profile margin under which the call is a near tie (uncertain): over the runner-up, or
+/// (after a tie-break) between the relative pair and the best key outside it.
+const KEY_MARGIN: f32 = 0.02;
+/// Second opinion: the key the Krumhansl-Kessler profiles pick from the same chromagram. A
+/// key is confident only when both agree. On the author-checked DAYDREAMS loops this flagged
+/// both key errors (`Do the Thing`, `Thinking Back`) and 4 of 16 correct keys, where the
+/// earlier margins (0.05, and 0.15 on the tie-break evidence) flagged 0 of 2 and 9 of 20.
+const KK_MAJOR: [f32; 12] = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
+const KK_MINOR: [f32; 12] = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
 /// A pitch class is strong in a frame at this fraction of the frame's loudest class (a
 /// decaying piano chord keeps its third and fifth around 0.4–0.5 of the root: `Piano_Beauty
 /// Chord Octave`; a single harmonic tone's fifth stays under 0.3)...
 const POLY_STRONG: f32 = 0.4;
-/// ...and stable when strong in at least this share of the sustained frames.
-const POLY_STABLE_SHARE: f32 = 0.7;
+/// ...and stable when strong in at least this share of the sustained frames (a struck piano
+/// chord's fifth fades under the bound after about half of it: `Piano_Beauty Chord`).
+const POLY_STABLE_SHARE: f32 = 0.5;
+/// A class "enters" once it has been strong this many frames in a row.
+const ENTRY_FRAMES: usize = 3;
 
 /// Chord of a one-shot: the sustained chromagram against 72 chord templates, with the root
 /// nudged toward the bass note.
@@ -82,7 +88,7 @@ pub fn estimate_key(features: &Features) -> Option<Estimate<Key>> {
     let relative_score = keys.iter().find(|(k, _)| *k == relative).map_or(f32::MIN, |k| k.1);
     if best_score - relative_score >= RELATIVE_MARGIN {
         let margin = best_score - keys[1].1;
-        return Some(Estimate { value: best, confident: margin >= KEY_MARGIN });
+        return Some(Estimate { value: best, confident: margin >= KEY_MARGIN && second_opinion(&chroma) == best });
     }
     let raw = sum(&features.chroma);
     let total = |key: Key, score: f32| score + tie_break_evidence(features, &raw, key);
@@ -90,16 +96,55 @@ pub fn estimate_key(features: &Features) -> Option<Estimate<Key>> {
     let value = if b > a { relative } else { best };
     // Any key outside the pair that is nearly as good as the pair's best makes the call uncertain.
     let rival = keys.iter().find(|(k, _)| *k != best && *k != relative).map_or(f32::MIN, |k| k.1);
-    let confident = best_score - rival >= KEY_MARGIN && (a - b).abs() >= TIE_BREAK_MARGIN;
+    let confident = best_score - rival >= KEY_MARGIN && second_opinion(&chroma) == value;
     Some(Estimate { value, confident })
+}
+
+/// The best key by the Krumhansl-Kessler profiles (see `KK_MAJOR`).
+fn second_opinion(chroma: &[f32; 12]) -> Key {
+    let score = |key: Key| {
+        let profile = if key.minor { &KK_MINOR } else { &KK_MAJOR };
+        let rotated: [f32; 12] = std::array::from_fn(|pc| profile[(pc + 12 - key.tonic.0 as usize) % 12]);
+        pearson(chroma, &rotated)
+    };
+    (0..24)
+        .map(|i| Key { tonic: PitchClass((i % 12) as u8), minor: i >= 12 })
+        .fold(None, |best: Option<(Key, f32)>, k| {
+            let s = score(k);
+            if best.is_none_or(|b| s > b.1) { Some((k, s)) } else { best }
+        })
+        .map_or(Key { tonic: PitchClass(0), minor: false }, |b| b.0)
 }
 
 /// Three or more pitch classes that stay strong together through the sustained part.
 pub fn is_polyphonic(features: &Features) -> bool {
-    let frames = &features.chroma[features.sustained_range()];
-    if frames.is_empty() {
-        return false;
+    stable_classes(features).len() >= 3
+}
+
+/// Seconds between the first and the last of the stable pitch classes becoming strong (for
+/// `ENTRY_FRAMES` frames in a row). Near 0 for a struck chord; a quarter second or more when
+/// the notes come one after another (an arpeggio, even one whose delay makes them overlap).
+pub fn stable_class_spread(features: &Features) -> f32 {
+    let entries: Vec<usize> = stable_classes(features)
+        .into_iter()
+        .filter_map(|class| {
+            let mut run = 0;
+            features.chroma.iter().position(|frame| {
+                let loudest = frame.iter().fold(0f32, |m, &v| m.max(v));
+                run = if loudest > 0.0 && frame[class] >= POLY_STRONG * loudest { run + 1 } else { 0 };
+                run == ENTRY_FRAMES
+            })
+        })
+        .collect();
+    match (entries.iter().min(), entries.iter().max()) {
+        (Some(first), Some(last)) => (last - first) as f32 * features.hop_seconds,
+        _ => 0.0,
     }
+}
+
+/// Pitch classes strong in at least `POLY_STABLE_SHARE` of the sustained frames.
+fn stable_classes(features: &Features) -> Vec<usize> {
+    let frames = &features.chroma[features.sustained_range()];
     let mut strong = [0usize; 12];
     for frame in frames {
         let loudest = frame.iter().fold(0f32, |m, &v| m.max(v));
@@ -112,7 +157,7 @@ pub fn is_polyphonic(features: &Features) -> bool {
             }
         }
     }
-    strong.iter().filter(|&&c| c as f32 >= POLY_STABLE_SHARE * frames.len() as f32).count() >= 3
+    (0..12).filter(|&c| !frames.is_empty() && strong[c] as f32 >= POLY_STABLE_SHARE * frames.len() as f32).collect()
 }
 
 /// Every chord with its score, best first; `None` for an empty chromagram.
@@ -283,6 +328,16 @@ mod tests {
         assert_eq!(key_label(&[am, dm, em, am], &[45.0, 50.0, 52.0, 45.0]), "Am");
         let (eb, ab, bb): (&[f32], &[f32], &[f32]) = (&[63.0, 67.0, 70.0], &[68.0, 72.0, 75.0], &[70.0, 74.0, 77.0]);
         assert_eq!(key_label(&[eb, ab, bb, eb], &[51.0, 56.0, 58.0, 51.0]), "Eb");
+    }
+
+    #[test]
+    fn plain_progression_is_confident() {
+        // Both profile sets agree on a clear diatonic progression.
+        let (am, dm, em): (&[f32], &[f32], &[f32]) = (&[57.0, 60.0, 64.0], &[62.0, 65.0, 69.0], &[64.0, 67.0, 71.0]);
+        let signal = progression(&[am, dm, em, am], &[45.0, 50.0, 52.0, 45.0], 90.0, 2, 1);
+        let found = estimate_key(&extract(&signal)).unwrap();
+        assert_eq!(found.value.label(), "Am");
+        assert!(found.confident, "{found:?}");
     }
 
     #[test]

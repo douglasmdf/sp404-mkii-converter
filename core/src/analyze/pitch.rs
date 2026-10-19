@@ -18,7 +18,8 @@ const YIN_THRESHOLD: f32 = 0.15;
 const SILENT_DB: f32 = -50.0;
 /// A frame's f0 counts as clear at this clarity (1 − normalized difference) or more.
 const CLEAR_CLARITY: f32 = 0.8;
-/// Below this share of clear frames in the sustained part, the sound has no note.
+/// Below this share of clear frames among the voiced frames of the sustained part, the sound
+/// has no note.
 const MIN_CLEAR_SHARE: f32 = 0.3;
 /// The halves of the sustained part differ by more than this (semitones) → treat as a glide.
 const GLIDE_SEMITONES: f32 = 0.5;
@@ -70,7 +71,9 @@ pub fn one_shot_note(signal: &Signal, features: &Features) -> Option<Estimate<Pi
         .filter(|(_, clarity)| *clarity >= CLEAR_CLARITY)
         .map(|&(hz, _)| hz_to_midi(hz) - features.tuning_cents / 100.0)
         .collect();
-    if midis.is_empty() || (midis.len() as f32) < MIN_CLEAR_SHARE * range.len() as f32 {
+    // Frames too close to either end for a YIN window have no f0 and do not count against.
+    let voiced = track[range.clone()].iter().flatten().count();
+    if midis.is_empty() || (midis.len() as f32) < MIN_CLEAR_SHARE * voiced as f32 {
         return None;
     }
     let (first, second) = midis.split_at(midis.len() / 2);
