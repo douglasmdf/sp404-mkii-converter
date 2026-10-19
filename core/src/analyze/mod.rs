@@ -7,6 +7,7 @@ pub mod features;
 pub mod harmony;
 pub mod pitch;
 pub mod signal;
+pub mod tempo;
 #[cfg(test)]
 pub(crate) mod synth;
 
