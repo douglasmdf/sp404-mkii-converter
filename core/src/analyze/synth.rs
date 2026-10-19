@@ -157,7 +157,7 @@ fn frames(seconds: f32) -> usize {
 
 fn signal(samples: Vec<f32>) -> Signal {
     let source_seconds = samples.len() as f64 / ANALYSIS_RATE as f64;
-    Signal { samples, rate: ANALYSIS_RATE, source_seconds }
+    Signal { samples, rate: ANALYSIS_RATE, source_seconds, file_seconds: source_seconds }
 }
 
 /// Fixed-seed LCG, uniform in [-1, 1).

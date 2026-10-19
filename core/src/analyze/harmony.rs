@@ -22,13 +22,15 @@ const BASS_PRESENCE: f32 = 0.02;
 /// Best chord must beat the runner-up by this (cosine) to be confident.
 const CHORD_MARGIN: f32 = 0.03;
 
-/// Krumhansl-Kessler key profiles, tonic first.
-const MAJOR_PROFILE: [f32; 12] = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
-const MINOR_PROFILE: [f32; 12] = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
-/// Relative keys closer than this (profile correlation) go to the tie-break. Diatonic loops
-/// correlate almost as well with the relative key, so with this margin the tie-break, not the
-/// profiles, decides most of them.
-const RELATIVE_MARGIN: f32 = 0.25;
+/// Temperley's (Kostka-Payne) key profiles, tonic first. Calibrated on the DAYDREAMS loops
+/// (analyzer v2): with frame-normalized chroma they agreed with the reference on 12 of 17
+/// loops/phrases, against 9 for Krumhansl-Kessler and 8 for flat diatonic templates.
+const MAJOR_PROFILE: [f32; 12] = [5.0, 2.0, 3.5, 2.0, 4.5, 4.0, 2.0, 4.5, 2.0, 3.5, 1.5, 4.0];
+const MINOR_PROFILE: [f32; 12] = [5.0, 2.0, 3.5, 4.5, 2.0, 4.0, 2.0, 4.5, 3.5, 2.0, 1.5, 4.0];
+/// Relative keys closer than this (profile correlation) go to the tie-break. Temperley's minor
+/// profile weights the leading tone, so natural-minor material can trail its relative major
+/// by up to ~0.5; with this margin the tie-break, not the profiles, decides diatonic loops.
+const RELATIVE_MARGIN: f32 = 0.6;
 /// Tie-break weights: tonic in the bass, tonic at the start/end, tonic chord over the loop.
 const TIE_BASS_WEIGHT: f32 = 1.0;
 const TIE_ENDS_WEIGHT: f32 = 1.0;
@@ -43,8 +45,10 @@ const KEY_MARGIN: f32 = 0.05;
 /// After a tie-break, the winner's total must also beat its relative by this much. The
 /// evidence spans 0–3 (three shares weighted 1.0), so this is 5 % of its range.
 const TIE_BREAK_MARGIN: f32 = 0.15;
-/// A pitch class is strong in a frame at this fraction of the frame's loudest class...
-const POLY_STRONG: f32 = 0.5;
+/// A pitch class is strong in a frame at this fraction of the frame's loudest class (a
+/// decaying piano chord keeps its third and fifth around 0.4–0.5 of the root: `Piano_Beauty
+/// Chord Octave`; a single harmonic tone's fifth stays under 0.3)...
+const POLY_STRONG: f32 = 0.4;
 /// ...and stable when strong in at least this share of the sustained frames.
 const POLY_STABLE_SHARE: f32 = 0.7;
 
@@ -62,7 +66,7 @@ pub fn estimate_chord(features: &Features) -> Option<Estimate<Chord>> {
 /// Key of a loop: mean chromagram correlated with 24 key profiles; a close call between
 /// relative keys (Am vs C) is settled by the bass, the start/end and the tonic chord count.
 pub fn estimate_key(features: &Features) -> Option<Estimate<Key>> {
-    let chroma = sum(&features.chroma);
+    let chroma = normalized_sum(&features.chroma);
     if chroma.iter().sum::<f32>() <= 0.0 {
         return None;
     }
@@ -80,7 +84,8 @@ pub fn estimate_key(features: &Features) -> Option<Estimate<Key>> {
         let margin = best_score - keys[1].1;
         return Some(Estimate { value: best, confident: margin >= KEY_MARGIN });
     }
-    let total = |key: Key, score: f32| score + tie_break_evidence(features, &chroma, key);
+    let raw = sum(&features.chroma);
+    let total = |key: Key, score: f32| score + tie_break_evidence(features, &raw, key);
     let (a, b) = (total(best, best_score), total(relative, relative_score));
     let value = if b > a { relative } else { best };
     // Any key outside the pair that is nearly as good as the pair's best makes the call uncertain.
@@ -200,6 +205,19 @@ fn bass_share(frames: &[[f32; 12]], chroma: &[f32; 12]) -> [f32; 12] {
     bass.map(|v| v / total)
 }
 
+/// Sum of the frames, each scaled so its loudest pitch class is 1: every moment of a loop
+/// counts the same, so loud drum hits or one loud chord do not decide the key alone.
+fn normalized_sum(frames: &[[f32; 12]]) -> [f32; 12] {
+    let mut out = [0f32; 12];
+    for frame in frames {
+        let loudest = frame.iter().fold(0f32, |m, &v| m.max(v));
+        if loudest > 0.0 {
+            out.iter_mut().zip(frame).for_each(|(o, v)| *o += v / loudest);
+        }
+    }
+    out
+}
+
 fn sum(frames: &[[f32; 12]]) -> [f32; 12] {
     let mut out = [0f32; 12];
     for frame in frames {
@@ -289,13 +307,27 @@ mod tests {
 
     #[test]
     fn tie_break_can_pick_the_major_key() {
-        // Mirror of the test above: the profiles prefer Am; bass, ends and chord counts say C.
-        let (am, c, f): (&[f32], &[f32], &[f32]) = (&[57.0, 60.0, 64.0], &[60.0, 64.0, 67.0], &[57.0, 60.0, 65.0]);
-        let signal = progression(&[c, am, f, am, c], &[48.0, 45.0, 41.0, 45.0, 48.0], 90.0, 2, 1);
-        let features = extract(&signal);
-        let chroma = sum(&features.chroma);
+        // Mirror of the test above: the profiles prefer Am; the bass says C. With Temperley's
+        // profiles no plain C-major chord progression correlates better with Am (the minor
+        // profile wants G#), so the chromagram is built from the profiles directly.
+        let major = |t: usize| -> [f32; 12] { std::array::from_fn(|pc| MAJOR_PROFILE[(pc + 12 - t) % 12]) };
+        let minor = |t: usize| -> [f32; 12] { std::array::from_fn(|pc| MINOR_PROFILE[(pc + 12 - t) % 12]) };
+        let frame: [f32; 12] = std::array::from_fn(|pc| major(0)[pc] + 1.3 * minor(9)[pc]);
+        let mut bass = [0f32; 12];
+        bass[0] = 10.0; // well above the bass-presence floor
+        let n = 100;
+        let features = Features {
+            hop_seconds: 0.023,
+            onset_env: vec![0.0; n],
+            onsets: Vec::new(),
+            chroma: vec![frame; n],
+            bass_chroma: vec![bass; n],
+            tuning_cents: 0.0,
+            rms: vec![0.1; n],
+            sustained_partials: 0.0,
+        };
         let (a_minor, c_major) = (Key { tonic: PitchClass(9), minor: true }, Key { tonic: PitchClass(0), minor: false });
-        assert!(key_correlation(&chroma, a_minor) > key_correlation(&chroma, c_major));
+        assert!(key_correlation(&frame, a_minor) > key_correlation(&frame, c_major));
         assert_eq!(estimate_key(&features).unwrap().value, c_major);
     }
 
@@ -306,7 +338,7 @@ mod tests {
         let major = |t: usize| -> [f32; 12] { std::array::from_fn(|pc| MAJOR_PROFILE[(pc + 12 - t) % 12]) };
         let minor = |t: usize| -> [f32; 12] { std::array::from_fn(|pc| MINOR_PROFILE[(pc + 12 - t) % 12]) };
         let frame: [f32; 12] =
-            std::array::from_fn(|pc| major(0)[pc] + 3.0 * minor(9)[pc] + 0.95 * (major(7)[pc] + 3.0 * minor(4)[pc]));
+            std::array::from_fn(|pc| major(0)[pc] + 3.0 * minor(9)[pc] + 1.17 * (major(7)[pc] + 3.0 * minor(4)[pc]));
         let n = 100;
         let features = Features {
             hop_seconds: 0.023,
@@ -316,6 +348,7 @@ mod tests {
             bass_chroma: vec![[0.0; 12]; n],
             tuning_cents: 0.0,
             rms: vec![0.1; n],
+            sustained_partials: 0.0,
         };
         let key = |t: u8, minor: bool| Key { tonic: PitchClass(t), minor };
         let corr = |k: Key| key_correlation(&frame, k);

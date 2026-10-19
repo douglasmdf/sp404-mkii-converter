@@ -196,5 +196,6 @@ fn json_log_includes_analysis() {
     let log = fs::read_to_string(out.join("Pack").join(LOG_FILE_NAME)).unwrap();
     let compact: String = log.chars().filter(|c| !c.is_whitespace()).collect();
     assert!(compact.contains("\"analysis\""), "{log}");
-    assert!(compact.contains("\"analyzerVersion\":1"), "{log}");
+    let version = format!("\"analyzerVersion\":{}", sp404_core::analyze::ANALYZER_VERSION);
+    assert!(compact.contains(&version), "{log}");
 }

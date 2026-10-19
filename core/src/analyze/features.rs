@@ -16,6 +16,16 @@ const CHROMA_MIN_HZ: f32 = 55.0;
 const CHROMA_MAX_HZ: f32 = 4000.0;
 const BASS_MIN_HZ: f32 = 30.0;
 const BASS_MAX_HZ: f32 = 250.0;
+/// Spectral peaks are also collected up to this frequency, for the sustained-partial share.
+const PEAKS_MAX_HZ: f32 = 10_000.0;
+/// Sustained partials: peaks in this band (where melodic content lives and drums carry little
+/// energy)...
+const PARTIAL_MIN_HZ: f32 = 250.0;
+const PARTIAL_MAX_HZ: f32 = 2500.0;
+/// ...that are present (within this many FFT bins) in each of this many frames before and
+/// after (about ±93 ms), so a drum's ringing decay rarely counts but a held note does.
+const PARTIAL_HOLD_FRAMES: usize = 4;
+const PARTIAL_TOLERANCE_BINS: f32 = 1.5;
 /// A spectral peak must be the maximum over this many bins on each side (drops Hann sidelobes).
 const PEAK_NEIGHBORS: usize = 2;
 /// Peaks quieter than this, relative to the loudest bin of the frame, are ignored.
@@ -45,6 +55,9 @@ pub struct Features {
     pub bass_chroma: Vec<[f32; 12]>,
     pub tuning_cents: f32,
     pub rms: Vec<f32>,
+    /// Share of all spectral-peak magnitude (30 Hz–10 kHz) held by sustained partials in the
+    /// melodic band: near 0 for drums and noise, high for notes, chords and music.
+    pub sustained_partials: f32,
 }
 
 impl Features {
@@ -74,8 +87,9 @@ pub fn extract(signal: &Signal) -> Features {
     let mut long = Spectrum::new(&mut planner, CHROMA_WINDOW);
     let rate = signal.rate as f32;
     let peaks: Vec<Vec<(f32, f32)>> = (0..n_frames)
-        .map(|i| spectral_peaks(long.magnitudes(x, i * HOP), rate, CHROMA_WINDOW, BASS_MIN_HZ, CHROMA_MAX_HZ))
+        .map(|i| spectral_peaks(long.magnitudes(x, i * HOP), rate, CHROMA_WINDOW, BASS_MIN_HZ, PEAKS_MAX_HZ))
         .collect();
+    let sustained_partials = sustained_partial_share(&peaks, rate / CHROMA_WINDOW as f32);
     let tuning_cents = estimate_tuning(&peaks);
     let chroma = peaks.iter().map(|p| fold_to_chroma(p, tuning_cents, CHROMA_MIN_HZ, CHROMA_MAX_HZ)).collect();
     let bass_chroma = peaks.iter().map(|p| fold_to_chroma(p, tuning_cents, BASS_MIN_HZ, BASS_MAX_HZ)).collect();
@@ -101,7 +115,30 @@ pub fn extract(signal: &Signal) -> Features {
         })
         .collect();
 
-    Features { hop_seconds, onset_env, onsets, chroma, bass_chroma, tuning_cents, rms }
+    Features { hop_seconds, onset_env, onsets, chroma, bass_chroma, tuning_cents, rms, sustained_partials }
+}
+
+/// See [`Features::sustained_partials`]. Peaks of each frame are sorted by frequency.
+fn sustained_partial_share(peaks: &[Vec<(f32, f32)>], bin_hz: f32) -> f32 {
+    let tolerance = PARTIAL_TOLERANCE_BINS * bin_hz;
+    let has_peak_near = |frame: &[(f32, f32)], hz: f32| {
+        let i = frame.partition_point(|p| p.0 < hz - tolerance);
+        frame.get(i).is_some_and(|p| p.0 <= hz + tolerance)
+    };
+    let (mut held, mut total) = (0f64, 0f64);
+    for (i, frame) in peaks.iter().enumerate() {
+        for &(hz, mag) in frame {
+            total += mag as f64;
+            let inside = i >= PARTIAL_HOLD_FRAMES && i + PARTIAL_HOLD_FRAMES < peaks.len();
+            if inside
+                && (PARTIAL_MIN_HZ..=PARTIAL_MAX_HZ).contains(&hz)
+                && (1..=PARTIAL_HOLD_FRAMES).all(|d| has_peak_near(&peaks[i - d], hz) && has_peak_near(&peaks[i + d], hz))
+            {
+                held += mag as f64;
+            }
+        }
+    }
+    if total > 0.0 { (held / total) as f32 } else { 0.0 }
 }
 
 /// Hann-windowed magnitude spectrum of the frame centred on a sample, scaled so a sine of
@@ -239,7 +276,7 @@ pub(crate) fn argmax(values: &[f32; 12]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::analyze::synth::{click_loop, mix, tone};
+    use crate::analyze::synth::{click_loop, mix, noise_hit, tone};
 
     #[test]
     fn chroma_peaks_on_note() {
@@ -258,6 +295,14 @@ mod tests {
     fn bass_chroma_ignores_highs() {
         let f = extract(&mix(&tone(36.0, 2.0, 6), &tone(81.0, 2.0, 6)));
         assert_eq!(argmax(&mean_chroma(&f.bass_chroma)), 0);
+    }
+
+    #[test]
+    fn held_notes_have_sustained_partials_and_drums_do_not() {
+        let held = extract(&tone(64.0, 2.0, 6)).sustained_partials;
+        let clicks = extract(&click_loop(90.0, 8)).sustained_partials;
+        let hit = extract(&noise_hit(0.5)).sustained_partials;
+        assert!(held > 0.3 && clicks < 0.1 && hit < 0.1, "{held} {clicks} {hit}");
     }
 
     #[test]

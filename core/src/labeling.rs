@@ -157,7 +157,13 @@ fn bpm_value(detection: &Detection, tokens: &NameTokens, range: BpmRange) -> Opt
             return Some(Pick::named(fold_bpm(bare, range), vec![span]));
         }
     }
-    Some(Pick::detected(detected, |&b: &f32| fold_bpm(b, range)))
+    let mut pick = Pick::detected(detected, |&b: &f32| fold_bpm(b, range));
+    // The analyzer finds the tempo family, not the octave: when double or half the value is
+    // also inside the range (78–166 holds both 81 and 162), the choice is a guess.
+    let (min, max) = range.bounds();
+    let folded = pick.value as f32;
+    pick.uncertain |= folded * 2.0 <= max || folded / 2.0 >= min;
+    Some(pick)
 }
 
 #[cfg(test)]
@@ -166,6 +172,24 @@ mod tests {
     use crate::name_tags::parse_name;
 
     const RANGE: BpmRange = BpmRange::R78_166;
+
+    #[test]
+    fn detected_bpm_with_both_octaves_in_range_is_uncertain() {
+        let detection = |bpm: f32| Detection {
+            kind: Estimate { value: SampleKind::DrumLoop, confident: true },
+            note: None,
+            chord: None,
+            key: None,
+            bpm: sure(bpm),
+        };
+        let none = NameTokens::default();
+        let (a, _) = resolve(&detection(81.0), &none, RANGE);
+        assert_eq!((a.bpm, a.bpm_uncertain), (Some(81), true));
+        let (a, _) = resolve(&detection(90.0), &none, RANGE);
+        assert_eq!((a.bpm, a.bpm_uncertain), (Some(90), false));
+        let (a, _) = resolve(&detection(81.0), &parse_name("Break 162bpm"), RANGE);
+        assert_eq!((a.bpm, a.bpm_uncertain), (Some(162), false));
+    }
 
     fn sure<T>(value: T) -> Option<Estimate<T>> {
         Some(Estimate { value, confident: true })
@@ -293,6 +317,7 @@ mod tests {
     #[test]
     fn analysis_json_is_camel_case() {
         let json = serde_json::to_string(&failed("x")).unwrap();
-        assert!(json.contains("\"analyzerVersion\":1") && json.contains("\"kindUncertain\":false"), "{json}");
+        let version = format!("\"analyzerVersion\":{ANALYZER_VERSION}");
+        assert!(json.contains(&version) && json.contains("\"kindUncertain\":false"), "{json}");
     }
 }
