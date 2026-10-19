@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+rayon = "1.10"
 sp404-core = { path = "../core" }
 
 [dev-dependencies]

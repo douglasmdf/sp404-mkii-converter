@@ -2,8 +2,12 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::AtomicBool;
 
+mod analyze;
+mod eval;
+
 use clap::{Parser, Subcommand};
-use sp404_core::config::{SaveMode, Settings};
+use sp404_core::analyze::AnalysisCache;
+use sp404_core::config::{BpmRange, SaveMode, Settings};
 use sp404_core::runner::{self, Event, FileStatus};
 use sp404_core::scan::{self, JobKind, Plan};
 use sp404_core::{space, undo};
@@ -31,6 +35,30 @@ enum Command {
         /// Write conversion_results.json into each output pack
         #[arg(long)]
         json_log: bool,
+        /// Add the detected key/note/chord and BPM to the output names
+        #[arg(long)]
+        detect_key_bpm: bool,
+        /// BPM range detected tempos are folded into: 58-115, 68-135, 78-166, 88-175 or 98-195
+        #[arg(long, value_parser = parse_range)]
+        bpm_range: Option<BpmRange>,
+    },
+    /// Detect the type, key and BPM of audio files (and score the result against an answer key)
+    Analyze {
+        /// Pack folders and/or audio files
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// BPM range detected tempos are folded into
+        #[arg(long, value_parser = parse_range, default_value = "78-166")]
+        bpm_range: BpmRange,
+        /// Analyse without using the folder and file names
+        #[arg(long)]
+        ignore_names: bool,
+        /// CSV answer key (path,kind,label,bpm) to measure accuracy against
+        #[arg(long)]
+        labels: Option<PathBuf>,
+        /// Write the accuracy tables to this Markdown file
+        #[arg(long)]
+        report: Option<PathBuf>,
     },
     /// Delete the files created by the last conversion
     Undo {
@@ -43,7 +71,12 @@ enum Command {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let outcome = match cli.command {
-        Command::Convert { inputs, out, dry_run, json_log } => convert(&inputs, out.as_deref(), dry_run, json_log),
+        Command::Convert { inputs, out, dry_run, json_log, detect_key_bpm, bpm_range } => {
+            convert(&inputs, out.as_deref(), dry_run, json_log, detect_key_bpm, bpm_range)
+        }
+        Command::Analyze { inputs, bpm_range, ignore_names, labels, report } => {
+            analyze::run(&analyze::Options { inputs, range: bpm_range, ignore_names, labels, report }).map(|()| ExitCode::SUCCESS)
+        }
         Command::Undo { remove_empty_dirs } => undo_last(remove_empty_dirs),
     };
     match outcome {
@@ -55,7 +88,18 @@ fn main() -> ExitCode {
     }
 }
 
-fn convert(inputs: &[PathBuf], out: Option<&Path>, dry_run: bool, json_log: bool) -> Result<ExitCode, String> {
+fn parse_range(text: &str) -> Result<BpmRange, String> {
+    text.parse()
+}
+
+fn convert(
+    inputs: &[PathBuf],
+    out: Option<&Path>,
+    dry_run: bool,
+    json_log: bool,
+    detect_key_bpm: bool,
+    bpm_range: Option<BpmRange>,
+) -> Result<ExitCode, String> {
     let mut settings = Settings::load();
     if out.is_some() {
         settings.save_mode = SaveMode::Ask;
@@ -63,13 +107,22 @@ fn convert(inputs: &[PathBuf], out: Option<&Path>, dry_run: bool, json_log: bool
     if json_log {
         settings.write_json_log = true;
     }
-    let plan = scan::build_plan(inputs, out, &settings).map_err(|e| e.to_string())?;
+    if detect_key_bpm {
+        settings.detect_key_bpm = true;
+    }
+    if let Some(range) = bpm_range {
+        settings.bpm_range = range;
+    }
+    let cancel = AtomicBool::new(false);
+    let plan = scan::plan_with(inputs, out, &settings, &AnalysisCache::default(), &cancel, |_| {}).map_err(|e| e.to_string())?;
     if dry_run {
         print_plan(&plan);
+        if settings.detect_key_bpm {
+            println!("\n{}", uncertain_summary(&plan));
+        }
         return Ok(ExitCode::SUCCESS);
     }
     space::check_free_space(&plan).map_err(|e| e.to_string())?;
-    let cancel = AtomicBool::new(false);
     let manifest_file = undo::manifest_path();
     let (summary, _) = runner::run(&plan, &settings, &cancel, Some(&manifest_file), |event| {
         if let Event::FileDone { done, total, result } = event {
@@ -88,7 +141,33 @@ fn convert(inputs: &[PathBuf], out: Option<&Path>, dry_run: bool, json_log: bool
         "\n{} converted, {} copied, {} skipped, {} failed, {} with warnings",
         summary.converted, summary.copied, summary.skipped, summary.failed, summary.with_warnings
     );
+    if settings.detect_key_bpm {
+        println!("{}", uncertain_summary(&plan));
+    }
     Ok(if summary.failed > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
+fn uncertain_summary(plan: &Plan) -> String {
+    let n = plan.jobs().filter_map(|j| j.analysis.as_ref()).filter(|a| a.error.is_none() && (a.label_uncertain || a.bpm_uncertain)).count();
+    format!("{n} with uncertain key/BPM")
+}
+
+fn analysis_note(job: &scan::Job) -> String {
+    let Some(a) = &job.analysis else { return String::new() };
+    if let Some(error) = &a.error {
+        return format!("  (not analyzed: {error})");
+    }
+    let mut out = String::new();
+    if a.label_uncertain {
+        out.push_str("  (key uncertain)");
+    }
+    if a.bpm_uncertain {
+        out.push_str("  (bpm uncertain)");
+    }
+    if a.kind_uncertain {
+        out.push_str("  (type uncertain)");
+    }
+    out
 }
 
 fn print_plan(plan: &Plan) {
@@ -107,7 +186,7 @@ fn print_plan(plan: &Plan) {
                 JobKind::Unsupported => "unsupported",
             };
             let note = if job.already_exists { "  (exists, will skip)" } else { "" };
-            println!("  {kind:<11} {} -> {}{note}", source.display(), dest.display());
+            println!("  {kind:<11} {} -> {}{note}{}", source.display(), dest.display(), analysis_note(job));
         }
     }
 }
