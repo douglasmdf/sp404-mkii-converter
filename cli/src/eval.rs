@@ -2,8 +2,9 @@
 
 use std::fmt::Write as _;
 
+use sp404_core::config::BpmRange;
 use sp404_core::labeling::Analysis;
-use sp404_core::tags::{Chord, ChordQuality, Key, PitchClass, SampleKind};
+use sp404_core::tags::{fold_bpm, Chord, ChordQuality, Key, PitchClass, SampleKind};
 
 pub const KINDS: [SampleKind; 6] = [
     SampleKind::Unpitched,
@@ -219,7 +220,8 @@ fn has_bpm(kind: SampleKind) -> bool {
     matches!(kind, SampleKind::MelodicLoop | SampleKind::DrumLoop)
 }
 
-pub fn score(results: &[(Label, Analysis)]) -> Metrics {
+/// BPMs are compared after folding both the truth and the result into `range`.
+pub fn score(results: &[(Label, Analysis)], range: BpmRange) -> Metrics {
     let mut m = Metrics::default();
     for (truth, found) in results {
         let ok = found.error.is_none();
@@ -237,7 +239,8 @@ pub fn score(results: &[(Label, Analysis)]) -> Metrics {
         flag(kind_hit, found.kind_uncertain);
 
         if let (true, Some(want)) = (has_bpm(truth.kind), truth.bpm) {
-            let got = found.bpm.filter(|_| ok).map(|b| b as f32);
+            let want = fold_bpm(want, range) as f32;
+            let got = found.bpm.filter(|_| ok).map(|b| fold_bpm(b as f32, range) as f32);
             let near = |a: f32, b: f32| (a - b).abs() <= 1.0;
             let exact = got.is_some_and(|g| near(g, want));
             m.bpm_exact.add(exact);
@@ -352,13 +355,16 @@ mod tests {
 
     #[test]
     fn bpm_octave_errors_counted() {
-        let results = vec![(
-            truth(SampleKind::DrumLoop, None, Some(90.0)),
-            analysis(SampleKind::DrumLoop, None, Some(180)),
-        )];
-        let m = score(&results);
-        assert_eq!(m.bpm_exact, Ratio { hits: 0, total: 1 });
-        assert_eq!(m.bpm_octave_errors, Ratio { hits: 1, total: 1 });
+        let r = BpmRange::R78_166;
+        let drum = |truth_bpm: f32, found: u32| {
+            vec![(truth(SampleKind::DrumLoop, None, Some(truth_bpm)), analysis(SampleKind::DrumLoop, None, Some(found)))]
+        };
+        // 192 folds to 96: exact, no octave error.
+        let m = score(&drum(192.0, 96), r);
+        assert_eq!((m.bpm_exact.hits, m.bpm_octave_errors.hits), (1, 0));
+        // 80 stays 80; 160 is double: an octave error.
+        let m = score(&drum(80.0, 160), r);
+        assert_eq!((m.bpm_exact.hits, m.bpm_octave_errors.hits), (0, 1));
     }
 
     #[test]
@@ -378,7 +384,7 @@ mod tests {
             (truth(SampleKind::Chord, Some("Cmaj7"), None), analysis(SampleKind::Chord, Some("C"), None)),
             (truth(SampleKind::MelodicLoop, Some("Am"), Some(90.0)), analysis(SampleKind::MelodicLoop, Some("C"), Some(91))),
         ];
-        let m = score(&results);
+        let m = score(&results, BpmRange::R78_166);
         assert_eq!(m.note_exact.hits, 1);
         assert_eq!((m.chord_exact.hits, m.chord_root.hits), (0, 1));
         assert_eq!((m.key_exact.hits, m.key_exact_or_relative.hits), (0, 1));

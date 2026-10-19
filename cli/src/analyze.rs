@@ -164,7 +164,7 @@ pub fn run(opts: &Options) -> Result<(), String> {
             None => eprintln!("warning: no analysed file matches the answer key path {}", label.path),
         }
     }
-    let mut metrics = eval::score(&scored);
+    let mut metrics = eval::score(&scored, opts.range);
     if !millis.is_empty() {
         metrics.mean_millis = Some(millis.iter().sum::<f64>() / millis.len() as f64);
     }
