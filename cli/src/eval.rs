@@ -168,21 +168,23 @@ fn split_csv_line(line: &str) -> Vec<String> {
     fields.into_iter().map(|f| f.trim().to_string()).collect()
 }
 
-/// Parses the answer key. Rows with an empty `kind` are skipped (not evaluated).
+/// Parses the answer key. Rows with an empty `kind` are skipped (not evaluated). Columns after
+/// the first four (e.g. `source`) are allowed and ignored.
 pub fn parse_labels(text: &str) -> Result<Vec<Label>, String> {
     let mut lines = text.trim_start_matches('\u{feff}').lines().enumerate().filter(|(_, l)| !l.trim().is_empty());
     let Some((_, header)) = lines.next() else {
         return Err(String::from("the answer key is empty (expected the header path,kind,label,bpm)"));
     };
-    if split_csv_line(header) != ["path", "kind", "label", "bpm"] {
+    let header = split_csv_line(header);
+    if header.len() < 4 || header[..4] != ["path", "kind", "label", "bpm"] {
         return Err(String::from("the answer key must start with the header path,kind,label,bpm"));
     }
     let mut out = Vec::new();
     for (i, line) in lines {
         let n = i + 1;
         let fields = split_csv_line(line);
-        if fields.len() != 4 {
-            return Err(format!("line {n}: expected 4 columns, found {}", fields.len()));
+        if fields.len() != header.len() {
+            return Err(format!("line {n}: expected {} columns, found {}", header.len(), fields.len()));
         }
         if fields[1].is_empty() {
             continue;
@@ -375,6 +377,14 @@ mod tests {
         assert_eq!(ok.len(), 2);
         assert_eq!(ok[0].label.as_deref(), Some("F#"));
         assert_eq!(ok[1].bpm, Some(90.0));
+    }
+
+    #[test]
+    fn parse_labels_ignores_extra_columns() {
+        let ok = parse_labels("path,kind,label,bpm,source\na.wav,melodicLoop,Am,90,reference\n").unwrap();
+        assert_eq!(ok[0].label.as_deref(), Some("Am"));
+        assert!(parse_labels("path,kind,label,bpm,source\na.wav,melodicLoop,Am,90\n").is_err());
+        assert!(parse_labels("path,kind,bpm,label\n").is_err());
     }
 
     #[test]
