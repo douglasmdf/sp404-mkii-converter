@@ -3238,6 +3238,7 @@ dependencies = [
  "fs4",
  "hound",
  "rayon",
+ "realfft",
  "rubato",
  "serde",
  "serde_json",

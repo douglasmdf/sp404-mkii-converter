@@ -1,5 +1,6 @@
 //! Core conversion logic for the SP-404 MKII converter. No UI code lives here.
 
+pub mod analyze;
 pub mod config;
 pub mod convert;
 pub mod decode;

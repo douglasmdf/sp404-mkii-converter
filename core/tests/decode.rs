@@ -1,7 +1,7 @@
 mod common;
 
 use common::*;
-use sp404_core::decode::{decode_file, probe_info};
+use sp404_core::decode::{decode_file, decode_file_limited, probe_info};
 
 #[test]
 fn wav_16bit_is_exact_and_lossless() {
@@ -94,4 +94,18 @@ fn probe_reads_header_only() {
     assert_eq!(info.frames, Some(4_410));
     assert_eq!(info.sample_rate, Some(44_100));
     assert_eq!(info.channels, Some(2));
+}
+
+#[test]
+fn limited_decode_stops_early() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("long.wav");
+    let fmt = WavFormat { sample_rate: 48_000, channels: 1, bits: 16, float: false };
+    write_sine_wav(&path, &fmt, 440.0, 0.5, 480_000);
+    let limited = decode_file_limited(&path, Some(2.0)).unwrap();
+    let seconds = limited.buffer.frames() as f64 / 48_000.0;
+    assert!((2.0..=3.0).contains(&seconds), "{seconds}");
+    let full = decode_file_limited(&path, None).unwrap();
+    assert_eq!(full.buffer.frames(), 480_000);
+    assert_eq!(full, decode_file(&path).unwrap());
 }

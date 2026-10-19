@@ -42,6 +42,12 @@ pub struct AudioInfo {
 }
 
 pub fn decode_file(path: &Path) -> Result<DecodedAudio> {
+    decode_file_limited(path, None)
+}
+
+/// Like `decode_file`, but stops reading packets once more than `max_seconds` are decoded
+/// (the last packet is kept whole, so a little more may come back).
+pub fn decode_file_limited(path: &Path, max_seconds: Option<f64>) -> Result<DecodedAudio> {
     let (mut format, track_id, params) = open(path)?;
     let mut decoder = symphonia::default::get_codecs()
         .make(&params, &DecoderOptions::default())
@@ -77,6 +83,11 @@ pub fn decode_file(path: &Path) -> Result<DecodedAudio> {
         samples.copy_interleaved_ref(decoded);
         for (i, s) in samples.samples().iter().enumerate() {
             channels[i % n_ch].push(*s);
+        }
+        if let Some(max) = max_seconds {
+            if channels.first().map_or(0, Vec::len) as f64 >= max * sample_rate as f64 {
+                break;
+            }
         }
     }
 
