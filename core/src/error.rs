@@ -10,6 +10,10 @@ pub enum CoreError {
     },
     #[error("not a folder: {0}")]
     NotADirectory(PathBuf),
+    #[error("not found: {0}")]
+    NotFound(PathBuf),
+    #[error("not an audio file: {0}")]
+    NotAudioFile(PathBuf),
     #[error("output folder {dest} overlaps the source folder {source_dir}")]
     OutputInsideSource { dest: PathBuf, source_dir: PathBuf },
     #[error("no output folder chosen")]

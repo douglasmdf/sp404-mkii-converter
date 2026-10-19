@@ -17,10 +17,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Convert one or more pack folders
+    /// Convert one or more pack folders and/or loose audio files
     Convert {
+        /// Pack folders and/or audio files
         #[arg(required = true)]
-        packs: Vec<PathBuf>,
+        inputs: Vec<PathBuf>,
         /// Output folder (otherwise the saved settings decide)
         #[arg(long)]
         out: Option<PathBuf>,
@@ -42,7 +43,7 @@ enum Command {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let outcome = match cli.command {
-        Command::Convert { packs, out, dry_run, json_log } => convert(&packs, out.as_deref(), dry_run, json_log),
+        Command::Convert { inputs, out, dry_run, json_log } => convert(&inputs, out.as_deref(), dry_run, json_log),
         Command::Undo { remove_empty_dirs } => undo_last(remove_empty_dirs),
     };
     match outcome {
@@ -54,7 +55,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn convert(packs: &[PathBuf], out: Option<&Path>, dry_run: bool, json_log: bool) -> Result<ExitCode, String> {
+fn convert(inputs: &[PathBuf], out: Option<&Path>, dry_run: bool, json_log: bool) -> Result<ExitCode, String> {
     let mut settings = Settings::load();
     if out.is_some() {
         settings.save_mode = SaveMode::Ask;
@@ -62,7 +63,7 @@ fn convert(packs: &[PathBuf], out: Option<&Path>, dry_run: bool, json_log: bool)
     if json_log {
         settings.write_json_log = true;
     }
-    let plan = scan::build_plan(packs, out, &settings).map_err(|e| e.to_string())?;
+    let plan = scan::build_plan(inputs, out, &settings).map_err(|e| e.to_string())?;
     if dry_run {
         print_plan(&plan);
         return Ok(ExitCode::SUCCESS);
@@ -92,7 +93,11 @@ fn convert(packs: &[PathBuf], out: Option<&Path>, dry_run: bool, json_log: bool)
 
 fn print_plan(plan: &Plan) {
     for pack in &plan.packs {
-        println!("{} -> {}", pack.source_root.display(), pack.dest_root.display());
+        if pack.loose {
+            println!("(loose files) -> {}", pack.dest_root.display());
+        } else {
+            println!("{} -> {}", pack.source_root.display(), pack.dest_root.display());
+        }
         for job in &pack.jobs {
             let source = job.source.strip_prefix(&pack.source_root).unwrap_or(&job.source);
             let dest = job.dest.strip_prefix(&pack.dest_root).unwrap_or(&job.dest);

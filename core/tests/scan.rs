@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use sp404_core::config::{SaveMode, Settings};
-use sp404_core::scan::{build_plan, inspect_pack, JobKind, Plan};
+use sp404_core::scan::{build_plan, inspect_inputs, inspect_pack, JobKind, Plan, LOOSE_FOLDER_NAME};
 use sp404_core::CoreError;
 
 fn touch(root: &Path, rel: &str) {
@@ -178,17 +178,6 @@ fn packs_with_same_name_get_distinct_roots() {
 }
 
 #[test]
-fn file_instead_of_folder_is_rejected() {
-    let (_tmp, pack, out) = setup();
-    touch(&pack, "kick.wav");
-    let file = pack.join("kick.wav");
-    assert!(matches!(
-        build_plan(&[file], Some(&out), &Settings::default()),
-        Err(CoreError::NotADirectory(_))
-    ));
-}
-
-#[test]
 fn inspect_counts_files_by_kind() {
     let (_tmp, pack, _out) = setup();
     touch(&pack, "a.wav");
@@ -233,4 +222,133 @@ fn nested_packs_next_to_source_are_rejected() {
     let mut s = Settings::default();
     s.save_mode = SaveMode::NextToSource;
     assert!(matches!(build_plan(&[drums, kicks], None, &s), Err(CoreError::OutputInsideSource { .. })));
+}
+
+fn loose_dests(plan: &Plan) -> Vec<String> {
+    let pack = plan.packs.last().unwrap();
+    pack.jobs
+        .iter()
+        .map(|j| j.dest.strip_prefix(&pack.dest_root).unwrap().to_string_lossy().replace('\\', "/"))
+        .collect()
+}
+
+#[test]
+fn loose_files_go_to_samples_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    touch(tmp.path(), "a/Kick.wav");
+    touch(tmp.path(), "b/Loop.mp3");
+    let out = tmp.path().join("out");
+    let files = [tmp.path().join("a/Kick.wav"), tmp.path().join("b/Loop.mp3")];
+    let plan = build_plan(&files, Some(&out), &Settings::default()).unwrap();
+    assert_eq!(plan.packs.len(), 1);
+    assert!(plan.packs[0].loose);
+    assert_eq!(plan.packs[0].name, LOOSE_FOLDER_NAME);
+    assert_eq!(plan.packs[0].dest_root, out.join("Samples [SP-404]"));
+    assert_eq!(loose_dests(&plan), ["Kick.wav", "Loop.wav"]);
+    assert_eq!(plan.packs[0].jobs[0].source, files[0]);
+}
+
+#[test]
+fn loose_files_ignore_save_mode() {
+    let tmp = tempfile::tempdir().unwrap();
+    touch(tmp.path(), "Pack/snare.wav");
+    touch(tmp.path(), "kick.wav");
+    let out = tmp.path().join("out");
+    let other = tmp.path().join("other");
+    let mut s = Settings::default();
+    s.save_mode = SaveMode::Fixed;
+    s.fixed_directory = Some(other.clone());
+    let inputs = [tmp.path().join("kick.wav"), tmp.path().join("Pack")];
+    let plan = build_plan(&inputs, Some(&out), &s).unwrap();
+    assert_eq!(plan.packs.len(), 2);
+    assert!(!plan.packs[0].loose);
+    assert_eq!(plan.packs[0].dest_root, other.join("Pack"));
+    assert!(plan.packs[1].loose);
+    assert_eq!(plan.packs[1].dest_root, out.join("Samples [SP-404]"));
+}
+
+#[test]
+fn loose_files_need_output_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+    touch(tmp.path(), "kick.wav");
+    let mut s = Settings::default();
+    s.save_mode = SaveMode::NextToSource;
+    let result = build_plan(&[tmp.path().join("kick.wav")], None, &s);
+    assert!(matches!(result, Err(CoreError::NoOutputDir)));
+}
+
+#[test]
+fn loose_output_may_be_the_source_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    touch(tmp.path(), "src/kick.wav");
+    let src = tmp.path().join("src");
+    let plan = build_plan(&[src.join("kick.wav")], Some(&src), &Settings::default()).unwrap();
+    assert_eq!(plan.packs[0].jobs[0].dest, src.join("Samples [SP-404]").join("kick.wav"));
+}
+
+#[test]
+fn loose_file_inside_output_is_rejected() {
+    let tmp = tempfile::tempdir().unwrap();
+    touch(tmp.path(), "out/Samples [SP-404]/kick.wav");
+    let out = tmp.path().join("out");
+    let result = build_plan(&[out.join("Samples [SP-404]/kick.wav")], Some(&out), &Settings::default());
+    assert!(matches!(result, Err(CoreError::OutputInsideSource { .. })));
+}
+
+#[test]
+fn loose_duplicate_names_are_numbered() {
+    let tmp = tempfile::tempdir().unwrap();
+    touch(tmp.path(), "a/kick.wav");
+    touch(tmp.path(), "b/Kick.aif");
+    let out = tmp.path().join("out");
+    let files = [tmp.path().join("a/kick.wav"), tmp.path().join("b/Kick.aif")];
+    let plan = build_plan(&files, Some(&out), &Settings::default()).unwrap();
+    assert_eq!(loose_dests(&plan), ["kick.wav", "Kick_2.wav"]);
+}
+
+#[test]
+fn loose_non_audio_is_rejected() {
+    let tmp = tempfile::tempdir().unwrap();
+    touch(tmp.path(), "notes.pdf");
+    let out = tmp.path().join("out");
+    let pdf = build_plan(&[tmp.path().join("notes.pdf")], Some(&out), &Settings::default());
+    assert!(matches!(pdf, Err(CoreError::NotAudioFile(_))));
+    let missing = build_plan(&[tmp.path().join("missing.wav")], Some(&out), &Settings::default());
+    assert!(matches!(missing, Err(CoreError::NotFound(_))));
+}
+
+#[test]
+fn inspect_inputs_sorts_paths() {
+    let tmp = tempfile::tempdir().unwrap();
+    touch(tmp.path(), "Pack/a.wav");
+    touch(tmp.path(), "one.wav");
+    touch(tmp.path(), "two.opus");
+    touch(tmp.path(), "doc.pdf");
+    let inputs = [
+        tmp.path().join("Pack"),
+        tmp.path().join("one.wav"),
+        tmp.path().join("two.opus"),
+        tmp.path().join("doc.pdf"),
+    ];
+    let summary = inspect_inputs(&inputs).unwrap();
+    assert_eq!(summary.packs.len(), 1);
+    let loose = summary.loose.unwrap();
+    assert_eq!(loose.name, LOOSE_FOLDER_NAME);
+    assert_eq!((loose.audio_files, loose.unsupported_files), (1, 1));
+    assert_eq!(summary.rejected, [tmp.path().join("doc.pdf")]);
+    assert!(matches!(
+        inspect_inputs(&[tmp.path().join("nope")]),
+        Err(CoreError::NotFound(_))
+    ));
+}
+
+#[test]
+fn folders_only_plan_is_unchanged() {
+    let (_tmp, pack, out) = setup();
+    touch(&pack, "Breaks/Funky Break.mp3");
+    touch(&pack, "One Shots/kick.aif");
+    touch(&pack, "artwork.jpg");
+    let plan = build_plan(&[pack], Some(&out), &Settings::default()).unwrap();
+    assert!(plan.packs.iter().all(|p| !p.loose));
+    assert_eq!(rel_dests(&plan), ["Breaks/Funky_Break.wav", "One Shots/kick.wav", "artwork.jpg"]);
 }

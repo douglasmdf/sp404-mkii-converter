@@ -67,3 +67,25 @@ fn failed_file_gives_nonzero_exit_but_converts_the_rest() {
     assert_eq!(status.code(), Some(1));
     assert!(out.join("Pack/Kick_Agua.wav").exists());
 }
+
+#[test]
+fn loose_file_dry_run_uses_samples_folder() {
+    let (tmp, _pack, out, data) = setup();
+    let file = tmp.path().join("a.wav");
+    write_wav(&file);
+    let output = sp404(&data).args(["convert", "--dry-run", "--out"]).arg(&out).arg(&file).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Samples [SP-404]"), "{stdout}");
+    assert!(stdout.contains("a.wav"), "{stdout}");
+}
+
+#[test]
+fn loose_file_without_output_folder_fails_clearly() {
+    let (tmp, _pack, _out, data) = setup();
+    let file = tmp.path().join("a.wav");
+    write_wav(&file);
+    let output = sp404(&data).arg("convert").arg(&file).output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("no output folder"));
+}
