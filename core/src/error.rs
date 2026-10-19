@@ -30,6 +30,8 @@ pub enum CoreError {
     Encode(String),
     #[error("not enough disk space: need {needed} bytes, {available} available")]
     InsufficientSpace { needed: u64, available: u64 },
+    #[error("the file has no audible sound")]
+    NoAudio,
     #[error("internal error: {0}")]
     Internal(String),
 }

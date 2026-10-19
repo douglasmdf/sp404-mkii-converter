@@ -6,6 +6,7 @@ pub mod convert;
 pub mod decode;
 pub mod encode;
 pub mod error;
+pub mod labeling;
 pub mod name_tags;
 pub mod naming;
 pub mod process;

@@ -1,8 +1,15 @@
 //! Audio analysis for the key/BPM prefix: note, chord, key and tempo of a sample.
 //! Pure Rust, deterministic (no randomness, no dependence on thread count).
 
+use std::path::Path;
+
 use serde::Serialize;
 
+use crate::error::{CoreError, Result};
+use crate::name_tags::NameTokens;
+use crate::tags::{Chord, Key, PitchClass, SampleKind};
+
+pub mod classify;
 pub mod features;
 pub mod harmony;
 pub mod pitch;
@@ -23,4 +30,125 @@ pub const ANALYZER_VERSION: u32 = 1;
 pub struct Estimate<T> {
     pub value: T,
     pub confident: bool,
+}
+
+/// Words from the folder and file names, plus whether the name already carries a key or BPM.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct NameHints {
+    pub words: Vec<String>,
+    pub has_key_token: bool,
+    pub has_bpm_token: bool,
+}
+
+/// Spellings of "one shot" folded into one word before splitting, longest first.
+const JOINED_WORDS: &[(&str, &str)] = &[
+    ("one shots", "oneshot"),
+    ("one-shots", "oneshot"),
+    ("one_shots", "oneshot"),
+    ("oneshots", "oneshot"),
+    ("one shot", "oneshot"),
+    ("one-shot", "oneshot"),
+    ("one_shot", "oneshot"),
+];
+
+impl NameHints {
+    /// `rel_dirs` are the folders that count (the caller picks them: for a pack, the pack
+    /// folder and its subfolders down to the file; for a loose file, only its own folder).
+    pub fn from_path(rel_dirs: &[String], stem: &str, tokens: &NameTokens) -> NameHints {
+        let mut words = Vec::new();
+        for text in rel_dirs.iter().map(String::as_str).chain([stem]) {
+            words.extend(hint_words(text));
+        }
+        NameHints { words, has_key_token: tokens.key.is_some() || tokens.chord.is_some(), has_bpm_token: tokens.bpm.is_some() }
+    }
+
+    /// Whether `word` (a hint list entry such as `one shot` or `hi-hat`) is among the words.
+    pub fn has_word(&self, word: &str) -> bool {
+        let wanted = hint_words(word);
+        !wanted.is_empty() && self.words.windows(wanted.len()).any(|w| w == wanted.as_slice())
+    }
+}
+
+/// Lowercase words, split at anything that is not a letter or digit and between letters and
+/// digits (`Kick01` → `kick`, `01`), with "one shot(s)" folded into `oneshot`.
+fn hint_words(text: &str) -> Vec<String> {
+    let mut lower = text.to_lowercase();
+    for (from, to) in JOINED_WORDS {
+        lower = lower.replace(from, to);
+    }
+    let mut words = Vec::new();
+    let mut current = String::new();
+    for c in lower.chars() {
+        let boundary = current.chars().last().is_some_and(|p| p.is_ascii_digit() != c.is_ascii_digit());
+        if !c.is_alphanumeric() || boundary {
+            if !current.is_empty() {
+                words.push(std::mem::take(&mut current));
+            }
+        }
+        if c.is_alphanumeric() {
+            current.push(c);
+        }
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    words
+}
+
+/// What the analyzer found. Only the fields the kind uses are filled.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Detection {
+    pub kind: Estimate<SampleKind>,
+    pub note: Option<Estimate<PitchClass>>,
+    pub chord: Option<Estimate<Chord>>,
+    pub key: Option<Estimate<Key>>,
+    /// Raw BPM, not yet folded into a range.
+    pub bpm: Option<Estimate<f32>>,
+}
+
+/// Decodes and analyses one file. A file with no audible sound (empty or silent) is an error.
+pub fn analyze_file(path: &Path, hints: &NameHints) -> Result<Detection> {
+    let signal = signal::load(path)?;
+    if signal.samples.is_empty() {
+        return Err(CoreError::NoAudio);
+    }
+    Ok(analyze_signal(&signal, hints))
+}
+
+pub(crate) fn analyze_signal(signal: &signal::Signal, hints: &NameHints) -> Detection {
+    let features = features::extract(signal);
+    let rhythm = tempo::Rhythm::new(&features);
+    let kind = classify::classify_with(signal, &features, hints, rhythm.periodicity());
+    let mut detection = Detection { kind: kind.clone(), note: None, chord: None, key: None, bpm: None };
+    match kind.value {
+        SampleKind::Unpitched => {}
+        SampleKind::Note => detection.note = pitch::one_shot_note(signal, &features),
+        SampleKind::Chord => detection.chord = harmony::estimate_chord(&features),
+        SampleKind::Phrase => detection.key = harmony::estimate_key(&features),
+        SampleKind::MelodicLoop => {
+            detection.key = harmony::estimate_key(&features);
+            detection.bpm = rhythm.bpm(signal.source_seconds);
+        }
+        SampleKind::DrumLoop => detection.bpm = rhythm.bpm(signal.source_seconds),
+    }
+    detection
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::name_tags::parse_name;
+
+    #[test]
+    fn hints_from_path() {
+        let dirs = vec!["Lo-Fi Pack".to_string(), "One Shots".to_string(), "Hi-Hats".to_string()];
+        let stem = "Closed Hat01 Am";
+        let hints = NameHints::from_path(&dirs, stem, &parse_name(stem));
+        assert_eq!(hints.words, ["lo", "fi", "pack", "oneshot", "hi", "hats", "closed", "hat", "01", "am"]);
+        assert!(hints.has_key_token && !hints.has_bpm_token);
+        assert!(hints.has_word("one shot") && hints.has_word("One-Shot") && hints.has_word("hat"));
+        assert!(!hints.has_word("hi-hat"));
+        assert!(NameHints::from_path(&[], "808bass", &parse_name("808bass")).has_word("808"));
+    }
 }

@@ -30,43 +30,70 @@ const MIN_ONSETS: usize = 2;
 /// Raw BPM (not folded into a range). Prefers `60 × beats / seconds` for a whole number of
 /// beats that the onset periodicity agrees with (confident); otherwise the periodicity alone.
 pub fn estimate_bpm(features: &Features, seconds: f64) -> Option<Estimate<f32>> {
-    if features.onsets.len() < MIN_ONSETS {
-        return None;
-    }
-    let comb = Comb::new(features)?;
-    let (best_period, best_score) = comb.best_period()?;
-    let hop = features.hop_seconds as f64;
-    let period_of = |bpm: f64| 60.0 / (bpm * hop);
-    let acf_bpm = 60.0 / (comb.refine(best_period) * hop);
-
-    let mut chosen: Option<(f64, f64)> = None;
-    let first = (MIN_BPM * seconds / 60.0).ceil().max(1.0) as u64;
-    let last = (MAX_BPM * seconds / 60.0).floor() as u64;
-    for beats in first..=last {
-        let bpm = 60.0 * beats as f64 / seconds;
-        let direct = comb.score(period_of(bpm)) / best_score;
-        let family = comb.score(period_of(bpm / 2.0)).max(comb.score(period_of(bpm * 2.0))) / best_score;
-        let agreement = direct.max(FAMILY_WEIGHT * family);
-        let drift = [0.5, 1.0, 2.0].map(|f| (beats as f64 - seconds * acf_bpm * f / 60.0).abs()).into_iter().fold(f64::MAX, f64::min);
-        if agreement < AGREE_MIN || drift > MAX_DRIFT_BEATS {
-            continue;
-        }
-        let bar_bonus = if beats % 4 == 0 { BONUS_BAR } else if beats % 2 == 0 { BONUS_EVEN } else { 0.0 };
-        let integer_bonus = if (bpm - bpm.round()).abs() <= INTEGER_TOLERANCE { BONUS_INTEGER } else { 0.0 };
-        let score = agreement + bar_bonus + integer_bonus;
-        if chosen.is_none_or(|(_, s)| score > s) {
-            chosen = Some((bpm, score));
-        }
-    }
-    Some(match chosen {
-        Some((bpm, _)) => Estimate { value: bpm as f32, confident: true },
-        None => Estimate { value: acf_bpm as f32, confident: false },
-    })
+    Rhythm::new(features).bpm(seconds)
 }
 
 /// How periodic the onsets are: the best comb score of the onset autocorrelation, 0–1.
 pub fn periodicity(features: &Features) -> f32 {
-    Comb::new(features).and_then(|c| c.best_period()).map_or(0.0, |(_, s)| s.clamp(0.0, 1.0) as f32)
+    Rhythm::new(features).periodicity()
+}
+
+/// The onset autocorrelation of one signal, built once (it is O(n²)) and read for both the
+/// periodicity and the tempo.
+pub struct Rhythm {
+    comb: Option<Comb>,
+    best: Option<(f64, f64)>,
+    hop: f64,
+    onsets: usize,
+}
+
+impl Rhythm {
+    pub fn new(features: &Features) -> Rhythm {
+        let comb = Comb::new(features);
+        let best = comb.as_ref().and_then(|c| c.best_period());
+        Rhythm { comb, best, hop: features.hop_seconds as f64, onsets: features.onsets.len() }
+    }
+
+    /// See [`periodicity`].
+    pub fn periodicity(&self) -> f32 {
+        self.best.map_or(0.0, |(_, s)| s.clamp(0.0, 1.0) as f32)
+    }
+
+    /// See [`estimate_bpm`].
+    pub fn bpm(&self, seconds: f64) -> Option<Estimate<f32>> {
+        if self.onsets < MIN_ONSETS {
+            return None;
+        }
+        let comb = self.comb.as_ref()?;
+        let (best_period, best_score) = self.best?;
+        let hop = self.hop;
+        let period_of = |bpm: f64| 60.0 / (bpm * hop);
+        let acf_bpm = 60.0 / (comb.refine(best_period) * hop);
+
+        let mut chosen: Option<(f64, f64)> = None;
+        let first = (MIN_BPM * seconds / 60.0).ceil().max(1.0) as u64;
+        let last = (MAX_BPM * seconds / 60.0).floor() as u64;
+        for beats in first..=last {
+            let bpm = 60.0 * beats as f64 / seconds;
+            let direct = comb.score(period_of(bpm)) / best_score;
+            let family = comb.score(period_of(bpm / 2.0)).max(comb.score(period_of(bpm * 2.0))) / best_score;
+            let agreement = direct.max(FAMILY_WEIGHT * family);
+            let drift = [0.5, 1.0, 2.0].map(|f| (beats as f64 - seconds * acf_bpm * f / 60.0).abs()).into_iter().fold(f64::MAX, f64::min);
+            if agreement < AGREE_MIN || drift > MAX_DRIFT_BEATS {
+                continue;
+            }
+            let bar_bonus = if beats % 4 == 0 { BONUS_BAR } else if beats % 2 == 0 { BONUS_EVEN } else { 0.0 };
+            let integer_bonus = if (bpm - bpm.round()).abs() <= INTEGER_TOLERANCE { BONUS_INTEGER } else { 0.0 };
+            let score = agreement + bar_bonus + integer_bonus;
+            if chosen.is_none_or(|(_, s)| score > s) {
+                chosen = Some((bpm, score));
+            }
+        }
+        Some(match chosen {
+            Some((bpm, _)) => Estimate { value: bpm as f32, confident: true },
+            None => Estimate { value: acf_bpm as f32, confident: false },
+        })
+    }
 }
 
 /// Normalized autocorrelation of the onset envelope, read through a beat comb.
