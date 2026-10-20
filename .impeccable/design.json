@@ -1,0 +1,504 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-20T12:22:00+00:00",
+  "title": "Design System: SP-404 MKII Converter",
+  "extensions": {
+    "colorMeta": {
+      "orange": {
+        "role": "primary",
+        "displayName": "Laranja Placa Roland",
+        "canonical": "#ff6a13",
+        "tonalRamp": [
+          "oklch(15% 0.200 43.7)",
+          "oklch(25% 0.200 43.7)",
+          "oklch(35% 0.200 43.7)",
+          "oklch(48% 0.200 43.7)",
+          "oklch(60% 0.200 43.7)",
+          "oklch(72% 0.200 43.7)",
+          "oklch(84% 0.200 43.7)",
+          "oklch(95% 0.200 43.7)"
+        ]
+      },
+      "orange-hover": {
+        "role": "primary",
+        "displayName": "Laranja Placa (hover)",
+        "canonical": "#ff8136",
+        "tonalRamp": [
+          "oklch(15% 0.175 47.7)",
+          "oklch(25% 0.175 47.7)",
+          "oklch(35% 0.175 47.7)",
+          "oklch(48% 0.175 47.7)",
+          "oklch(60% 0.175 47.7)",
+          "oklch(72% 0.175 47.7)",
+          "oklch(84% 0.175 47.7)",
+          "oklch(95% 0.175 47.7)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Tinta de Placa",
+        "canonical": "#111111",
+        "tonalRamp": [
+          "oklch(15% 0.000 89.9)",
+          "oklch(25% 0.000 89.9)",
+          "oklch(35% 0.000 89.9)",
+          "oklch(48% 0.000 89.9)",
+          "oklch(60% 0.000 89.9)",
+          "oklch(72% 0.000 89.9)",
+          "oklch(84% 0.000 89.9)",
+          "oklch(95% 0.000 89.9)"
+        ]
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "Tinta de Placa Suave",
+        "canonical": "rgba(17, 17, 17, 0.66)",
+        "tonalRamp": [
+          "oklch(15% 0.000 89.9)",
+          "oklch(25% 0.000 89.9)",
+          "oklch(35% 0.000 89.9)",
+          "oklch(48% 0.000 89.9)",
+          "oklch(60% 0.000 89.9)",
+          "oklch(72% 0.000 89.9)",
+          "oklch(84% 0.000 89.9)",
+          "oklch(95% 0.000 89.9)"
+        ]
+      },
+      "black": {
+        "role": "neutral",
+        "displayName": "Preto de Placa",
+        "canonical": "#0b0b0b",
+        "tonalRamp": [
+          "oklch(15% 0.000 89.9)",
+          "oklch(25% 0.000 89.9)",
+          "oklch(35% 0.000 89.9)",
+          "oklch(48% 0.000 89.9)",
+          "oklch(60% 0.000 89.9)",
+          "oklch(72% 0.000 89.9)",
+          "oklch(84% 0.000 89.9)",
+          "oklch(95% 0.000 89.9)"
+        ]
+      },
+      "ground": {
+        "role": "neutral",
+        "displayName": "Chão Grafite",
+        "canonical": "#18191b",
+        "tonalRamp": [
+          "oklch(15% 0.004 264.5)",
+          "oklch(25% 0.004 264.5)",
+          "oklch(35% 0.004 264.5)",
+          "oklch(48% 0.004 264.5)",
+          "oklch(60% 0.004 264.5)",
+          "oklch(72% 0.004 264.5)",
+          "oklch(84% 0.004 264.5)",
+          "oklch(95% 0.004 264.5)"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Painel Grafite",
+        "canonical": "#202124",
+        "tonalRamp": [
+          "oklch(15% 0.006 271.2)",
+          "oklch(25% 0.006 271.2)",
+          "oklch(35% 0.006 271.2)",
+          "oklch(48% 0.006 271.2)",
+          "oklch(60% 0.006 271.2)",
+          "oklch(72% 0.006 271.2)",
+          "oklch(84% 0.006 271.2)",
+          "oklch(95% 0.006 271.2)"
+        ]
+      },
+      "raised": {
+        "role": "neutral",
+        "displayName": "Grafite Elevado",
+        "canonical": "#2a2c30",
+        "tonalRamp": [
+          "oklch(15% 0.008 264.4)",
+          "oklch(25% 0.008 264.4)",
+          "oklch(35% 0.008 264.4)",
+          "oklch(48% 0.008 264.4)",
+          "oklch(60% 0.008 264.4)",
+          "oklch(72% 0.008 264.4)",
+          "oklch(84% 0.008 264.4)",
+          "oklch(95% 0.008 264.4)"
+        ]
+      },
+      "raised-hover": {
+        "role": "neutral",
+        "displayName": "Grafite Elevado (hover)",
+        "canonical": "#33363b",
+        "tonalRamp": [
+          "oklch(15% 0.010 260.7)",
+          "oklch(25% 0.010 260.7)",
+          "oklch(35% 0.010 260.7)",
+          "oklch(48% 0.010 260.7)",
+          "oklch(60% 0.010 260.7)",
+          "oklch(72% 0.010 260.7)",
+          "oklch(84% 0.010 260.7)",
+          "oklch(95% 0.010 260.7)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Filete",
+        "canonical": "#34363b",
+        "tonalRamp": [
+          "oklch(15% 0.009 268.4)",
+          "oklch(25% 0.009 268.4)",
+          "oklch(35% 0.009 268.4)",
+          "oklch(48% 0.009 268.4)",
+          "oklch(60% 0.009 268.4)",
+          "oklch(72% 0.009 268.4)",
+          "oklch(84% 0.009 268.4)",
+          "oklch(95% 0.009 268.4)"
+        ]
+      },
+      "control-edge": {
+        "role": "neutral",
+        "displayName": "Borda de Controle",
+        "canonical": "#3d4045",
+        "tonalRamp": [
+          "oklch(15% 0.009 260.7)",
+          "oklch(25% 0.009 260.7)",
+          "oklch(35% 0.009 260.7)",
+          "oklch(48% 0.009 260.7)",
+          "oklch(60% 0.009 260.7)",
+          "oklch(72% 0.009 260.7)",
+          "oklch(84% 0.009 260.7)",
+          "oklch(95% 0.009 260.7)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Texto",
+        "canonical": "#f1f1ee",
+        "tonalRamp": [
+          "oklch(15% 0.004 106.5)",
+          "oklch(25% 0.004 106.5)",
+          "oklch(35% 0.004 106.5)",
+          "oklch(48% 0.004 106.5)",
+          "oklch(60% 0.004 106.5)",
+          "oklch(72% 0.004 106.5)",
+          "oklch(84% 0.004 106.5)",
+          "oklch(95% 0.004 106.5)"
+        ]
+      },
+      "text-2": {
+        "role": "neutral",
+        "displayName": "Texto 2",
+        "canonical": "#a8aaaf",
+        "tonalRamp": [
+          "oklch(15% 0.008 268.5)",
+          "oklch(25% 0.008 268.5)",
+          "oklch(35% 0.008 268.5)",
+          "oklch(48% 0.008 268.5)",
+          "oklch(60% 0.008 268.5)",
+          "oklch(72% 0.008 268.5)",
+          "oklch(84% 0.008 268.5)",
+          "oklch(95% 0.008 268.5)"
+        ]
+      },
+      "text-3": {
+        "role": "neutral",
+        "displayName": "Texto 3",
+        "canonical": "#8e9197",
+        "tonalRamp": [
+          "oklch(15% 0.010 264.5)",
+          "oklch(25% 0.010 264.5)",
+          "oklch(35% 0.010 264.5)",
+          "oklch(48% 0.010 264.5)",
+          "oklch(60% 0.010 264.5)",
+          "oklch(72% 0.010 264.5)",
+          "oklch(84% 0.010 264.5)",
+          "oklch(95% 0.010 264.5)"
+        ]
+      },
+      "sign-white": {
+        "role": "neutral",
+        "displayName": "Branco de Pictograma",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "oklch(15% 0.000 89.9)",
+          "oklch(25% 0.000 89.9)",
+          "oklch(35% 0.000 89.9)",
+          "oklch(48% 0.000 89.9)",
+          "oklch(60% 0.000 89.9)",
+          "oklch(72% 0.000 89.9)",
+          "oklch(84% 0.000 89.9)",
+          "oklch(95% 0.000 89.9)"
+        ]
+      },
+      "warn": {
+        "role": "status",
+        "displayName": "Âmbar de Aviso",
+        "canonical": "#ffb547",
+        "tonalRamp": [
+          "oklch(15% 0.149 73.3)",
+          "oklch(25% 0.149 73.3)",
+          "oklch(35% 0.149 73.3)",
+          "oklch(48% 0.149 73.3)",
+          "oklch(60% 0.149 73.3)",
+          "oklch(72% 0.149 73.3)",
+          "oklch(84% 0.149 73.3)",
+          "oklch(95% 0.149 73.3)"
+        ]
+      },
+      "error": {
+        "role": "status",
+        "displayName": "Vermelho de Erro",
+        "canonical": "#ff5a4f",
+        "tonalRamp": [
+          "oklch(15% 0.202 27.5)",
+          "oklch(25% 0.202 27.5)",
+          "oklch(35% 0.202 27.5)",
+          "oklch(48% 0.202 27.5)",
+          "oklch(60% 0.202 27.5)",
+          "oklch(72% 0.202 27.5)",
+          "oklch(84% 0.202 27.5)",
+          "oklch(95% 0.202 27.5)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "gate": {
+        "displayName": "Gate",
+        "purpose": "Número do portão no painel preto, em laranja."
+      },
+      "numeral": {
+        "displayName": "Numeral",
+        "purpose": "Contadores do resumo."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Texto das placas de chegada e de trabalho em andamento."
+      },
+      "step": {
+        "displayName": "Step",
+        "purpose": "Rótulos da faixa de passos; 700 nos passos feitos e no atual."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Títulos de rota, resumo e diálogo."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Texto base."
+      },
+      "control": {
+        "displayName": "Control",
+        "purpose": "Botões e abas."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Rótulos de contadores, cabeçalho da tabela, metadados."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Nomes de saída e caminhos."
+      }
+    },
+    "shadows": [
+      {
+        "name": "band-rule",
+        "value": "inset 0 -3px 0 var(--black)",
+        "purpose": "Filete preto na borda inferior da faixa laranja."
+      },
+      {
+        "name": "tab-indicator",
+        "value": "inset 0 -3px 0 var(--orange)",
+        "purpose": "Indicador da aba selecionada."
+      },
+      {
+        "name": "step-outline",
+        "value": "inset 0 0 0 2px var(--ink)",
+        "purpose": "Quadrado vazado dos passos futuros."
+      },
+      {
+        "name": "dialog",
+        "value": "0 24px 64px rgba(0, 0, 0, 0.55)",
+        "purpose": "Única elevação: o diálogo modal, sobre fundo rgba(0, 0, 0, 0.62)."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Curva de todas as transições e animações."
+      },
+      {
+        "name": "control-color",
+        "value": "120ms",
+        "purpose": "Troca de cor em botões e abas."
+      },
+      {
+        "name": "step-resign",
+        "value": "200ms",
+        "purpose": "Re-sinalização da faixa de passos e largura da barra de progresso."
+      },
+      {
+        "name": "flap",
+        "value": "320ms rotateX(-88deg) -> none",
+        "purpose": "Número do portão trocando como painel split-flap."
+      },
+      {
+        "name": "spin",
+        "value": "1.4s linear infinite",
+        "purpose": "Pictograma de conversão em andamento."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce",
+        "purpose": "Remove flap, giro e todas as transições."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "steps-collapse",
+        "value": "960px"
+      },
+      {
+        "name": "compact",
+        "value": "900px"
+      }
+    ],
+    "window": {
+      "default": "1000x700",
+      "minimum": "760x540"
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Converter tudo: placa laranja com quadrado preto e seta.",
+      "html": "<button class=\"ds-btn-primary\"><span class=\"ds-pict-in\"><svg class=\"ds-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M5 12h14\"/><path d=\"m12 5 7 7-7 7\"/></svg></span>Converter tudo</button>",
+      "css": ".ds-btn-primary { font: 700 14px/1 var(--sans); color: var(--text); background: var(--raised); border: 1px solid #3d4045; border-radius: var(--radius); height: 40px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; transition: background-color 120ms cubic-bezier(0.16, 1, 0.3, 1), color 120ms cubic-bezier(0.16, 1, 0.3, 1); background: var(--orange); border-color: var(--orange); color: var(--ink); padding-left: 6px; height: 44px; font-size: 15px; } .ds-btn-primary:hover { background: var(--orange-hover); border-color: var(--orange-hover); } .ds-btn-primary:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; } .ds-btn-primary:disabled { background: var(--raised); border-color: #3d4045; color: var(--text-3); cursor: default; } .ds-pict-in { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius); background: var(--black); color: #fff; } .ds-icon { width: 20px; height: 20px; flex: none; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Ações comuns: Dry Run, Limpar, Desfazer, adicionar entradas.",
+      "html": "<button class=\"ds-btn\"><svg class=\"ds-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/></svg>Dry Run</button>",
+      "css": ".ds-btn { font: 700 14px/1 var(--sans); color: var(--text); background: var(--raised); border: 1px solid #3d4045; border-radius: var(--radius); height: 40px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; transition: background-color 120ms cubic-bezier(0.16, 1, 0.3, 1), color 120ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn:hover { background: var(--raised-hover); } .ds-btn:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; } .ds-btn:disabled { opacity: 0.4; cursor: default; } .ds-icon { width: 20px; height: 20px; flex: none; }"
+    },
+    {
+      "name": "Pictogram Button",
+      "kind": "button",
+      "refersTo": "pictogram-button",
+      "description": "Quadrado preto com glifo branco: configurações, fechar.",
+      "html": "<button class=\"ds-pict-btn\" aria-label=\"Fechar\"><svg class=\"ds-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/></svg></button>",
+      "css": ".ds-pict-btn { display: inline-grid; place-items: center; width: 48px; height: 48px; padding: 0; background: var(--black); border: 1px solid var(--black); border-radius: var(--radius); color: #fff; cursor: pointer; transition: background-color 120ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-pict-btn:hover { background: #262626; } .ds-pict-btn:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; } .ds-pict-btn .ds-icon { width: 24px; height: 24px; }"
+    },
+    {
+      "name": "Step Band",
+      "kind": "nav",
+      "refersTo": "step-current",
+      "description": "Faixa de passos laranja: feito, atual em painel preto, futuro em quadrado vazado, com o painel do portão.",
+      "html": "<div class=\"ds-band\"><ol class=\"ds-steps\"><li class=\"done\"><span class=\"ds-sq\"><svg class=\"ds-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M5 12h14\"/><path d=\"m12 5 7 7-7 7\"/></svg></span>Adicione</li><li class=\"current\"><span class=\"ds-sq\"><svg class=\"ds-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/></svg></span>Confira</li><li><span class=\"ds-sq\"><svg class=\"ds-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M5 12h14\"/><path d=\"m12 5 7 7-7 7\"/></svg></span>Converta</li></ol><div class=\"ds-gate\"><span class=\"ds-gate-n\">12</span><span class=\"ds-gate-l\">arquivos para converter</span></div></div>",
+      "css": ".ds-band { display: grid; grid-template-columns: 1fr auto; height: 112px; background: var(--orange); color: var(--ink); box-shadow: inset 0 -3px 0 var(--black); font-family: var(--sans); } .ds-steps { list-style: none; margin: 0; padding: 0; display: flex; } .ds-steps li { flex: 1 1 0; display: flex; align-items: center; gap: 12px; padding: 0 20px; font-size: 20px; white-space: nowrap; border-right: 1px solid rgba(17, 17, 17, 0.18); transition: background-color 200ms cubic-bezier(0.16, 1, 0.3, 1), color 200ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-sq { display: inline-grid; place-items: center; width: 44px; height: 44px; border-radius: var(--radius); box-shadow: inset 0 0 0 2px var(--ink); } .ds-sq .ds-icon { width: 24px; height: 24px; opacity: 0.6; } .ds-steps li.done, .ds-steps li.current { font-weight: 700; } .ds-steps li.done .ds-sq { box-shadow: none; background: var(--black); color: #fff; } .ds-steps li.current { background: var(--black); color: var(--orange); } .ds-steps li.current .ds-sq { box-shadow: none; background: var(--orange); color: var(--black); } .ds-steps li.done .ds-icon, .ds-steps li.current .ds-icon { opacity: 1; } .ds-gate { display: flex; flex-direction: column; justify-content: center; min-width: 200px; padding: 0 24px; background: var(--black); } .ds-gate-n { font-size: 56px; line-height: 1; font-weight: 700; letter-spacing: -0.02em; color: var(--orange); font-variant-numeric: tabular-nums; } .ds-gate-l { margin-top: 6px; font-size: 13px; color: #d6d6d2; }"
+    },
+    {
+      "name": "Tabs",
+      "kind": "nav",
+      "refersTo": "tab",
+      "description": "Abas de filtro da tabela com contagem em quadrado preto.",
+      "html": "<div class=\"ds-tabs\" role=\"tablist\"><button class=\"ds-tab\" role=\"tab\" aria-selected=\"true\">Todos <span class=\"ds-count\">12</span></button><button class=\"ds-tab\" role=\"tab\" aria-selected=\"false\">Pulados <span class=\"ds-count\">1</span></button></div>",
+      "css": ".ds-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); } .ds-tab { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; background: none; border: none; border-radius: 0; font: 700 14px/1 var(--sans); color: var(--text-2); cursor: pointer; box-shadow: inset 0 -3px 0 transparent; transition: background-color 120ms cubic-bezier(0.16, 1, 0.3, 1), color 120ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-tab:hover { background: var(--panel); color: var(--text); } .ds-tab:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; } .ds-tab[aria-selected=\"true\"] { color: var(--text); box-shadow: inset 0 -3px 0 var(--orange); } .ds-count { min-width: 26px; padding: 3px 6px; border-radius: 3px; background: var(--black); color: var(--orange); font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Counters",
+      "kind": "custom",
+      "refersTo": "numeral",
+      "description": "Fileira de números grandes do resumo; aviso e erro pintam só o número.",
+      "html": "<div class=\"ds-counters\"><div class=\"ds-counter\"><b>9</b><span>convertidos</span></div><div class=\"ds-counter\"><b>1</b><span>pulados</span></div><div class=\"ds-counter warn\"><b>1</b><span>com avisos</span></div><div class=\"ds-counter error\"><b>1</b><span>com erro</span></div></div>",
+      "css": ".ds-counters { display: flex; flex-wrap: wrap; font-family: var(--sans); color: var(--text); } .ds-counter { display: grid; gap: 2px; padding: 0 22px; border-left: 1px solid var(--line); } .ds-counter:first-child { padding-left: 0; border-left: none; } .ds-counter b { font-size: 36px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; } .ds-counter span { font-size: 12px; color: var(--text-2); } .ds-counter.warn b { color: var(--warn); } .ds-counter.error b { color: var(--error); }"
+    },
+    {
+      "name": "Arrival Lockup",
+      "kind": "custom",
+      "refersTo": "pictogram-xl",
+      "description": "Placa de chegada: seta grande em quadrado preto presa à borda, título ao lado.",
+      "html": "<section class=\"ds-lockup\"><span class=\"ds-pict-xl\"><svg class=\"ds-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m12 19-7-7 7-7\"/><path d=\"M19 12H5\"/></svg></span><div><p class=\"ds-lockup-t\">Arraste pastas de sample packs ou arquivos de áudio para cá</p><p class=\"ds-lockup-s\">WAV 16 bits · 48 kHz</p></div></section>",
+      "css": ".ds-lockup { display: flex; align-items: center; gap: 24px; font-family: var(--sans); color: var(--text); } .ds-pict-xl { display: inline-grid; place-items: center; flex: none; width: 96px; height: 96px; border-radius: 0 var(--radius) var(--radius) 0; background: var(--black); color: #fff; } .ds-pict-xl .ds-icon { width: 52px; height: 52px; } .ds-lockup-t { margin: 0; font-size: 30px; font-weight: 700; line-height: 1.15; max-width: 20ch; text-wrap: balance; } .ds-lockup-s { margin: 8px 0 0; font-size: 15px; color: var(--text-2); }"
+    },
+    {
+      "name": "Key/BPM Tag",
+      "kind": "chip",
+      "refersTo": "tag",
+      "description": "Prefixo de tom/BPM no nome de saída, inline com o nome.",
+      "html": "<span class=\"ds-target\"><span class=\"ds-tag\">Am</span>_90_Loop.wav</span>",
+      "css": ".ds-target { font: 12.5px/1.45 var(--mono); color: var(--text); } .ds-tag { padding: 1px 5px; border-radius: 3px; background: var(--black); color: var(--orange); font-weight: 700; -webkit-box-decoration-break: clone; box-decoration-break: clone; }"
+    },
+    {
+      "name": "Number Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Campo numérico e select das configurações.",
+      "html": "<input class=\"ds-input\" type=\"number\" value=\"4\" />",
+      "css": ".ds-input { font: 14px var(--sans); color: var(--text); background: var(--ground); border: 1px solid #3d4045; border-radius: var(--radius); height: 36px; padding: 0 10px; width: 110px; font-variant-numeric: tabular-nums; } .ds-input:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; } .ds-input:disabled { opacity: 0.4; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "A Placa de Embarque",
+    "overview": "**Creative North Star: \"A Placa de Embarque\"**\n\nA janela é uma sinalização de aeroporto escura com uma única faixa de placa laranja. O laranja Roland é a cor da placa: marca o caminho, o passo atual e a ação principal, sempre com texto preto por cima. O preto de placa carrega os quadrados de pictograma e os números monumentais; os cinzas grafite formam o chão da janela, o trilho e os painéis. Nada flutua: tudo é placa, filete ou chão.\n\nA densidade é de ferramenta, não de site. Uma janela de 1000x700 (mínimo 760x540) organizada em faixa de placa no topo, trilho de entradas à esquerda, área de trabalho à direita e barra de ações embaixo. A informação que importa aparece em escala de portão (o total no painel preto, os contadores do resumo); o detalhe fica numa tabela com abas, a um clique.\n\nA tipografia é uma única humanista de sinalização, Atkinson Hyperlegible Next, em caixa normal, com números bold e tabulares. Os ícones vêm de uma única família (Lucide, um só traço), desenhados como pictogramas brancos em quadrados pretos; setas ficam presas à borda da área.",
+    "keyCharacteristics": [
+      "Laranja só para caminho, passo atual e ação principal; texto preto sobre laranja.",
+      "Pictogramas brancos em quadrados pretos, uma família de ícones, um traço.",
+      "Números bold e tabulares em escala de portão.",
+      "Superfícies chapadas em grafite; profundidade por tom e filete, não por sombra.",
+      "Cantos quase retos (4px); setas presas à borda com o canto colado reto."
+    ],
+    "rules": [
+      {
+        "name": "The Sign Panel Rule",
+        "body": "O laranja é a placa: caminho, passo atual, ação principal e números dentro de painel preto. Nunca vira fundo decorativo, ícone solto em grafite ou cor de estado.",
+        "section": "colors"
+      },
+      {
+        "name": "The Black-On-Orange Rule",
+        "body": "Sobre laranja, o texto e os contornos são sempre `ink`, nunca branco.",
+        "section": "colors"
+      },
+      {
+        "name": "The Graphite Disable Rule",
+        "body": "O botão principal desativado vira grafite (`raised` com texto `text-3`), nunca um laranja esmaecido que fica marrom.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Numbers Rule",
+        "body": "Todo número que muda (portão, contadores, contagens, metadados, campos numéricos) usa `font-variant-numeric: tabular-nums` e peso 700 quando é o dado principal.",
+        "section": "typography"
+      },
+      {
+        "name": "The Sentence Case Rule",
+        "body": "Nada em caixa alta forçada nem com tracking aberto; rótulos ficam em caixa normal.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Sign Rule",
+        "body": "Placas, painéis e botões não têm sombra. Elevação só existe no diálogo modal.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** reservar `orange` para a faixa de passos, a faixa do diálogo, a ação principal, a aba selecionada, o foco e os números em painel preto.",
+      "**Do** usar texto `ink` sobre qualquer laranja.",
+      "**Do** desenhar todo ícone como glifo branco de Lucide em quadrado preto, com setas presas à borda (`0 4px 4px 0`).",
+      "**Do** mostrar números importantes em 700 e tabulares, em escala de portão (56px) ou de contador (36px).",
+      "**Do** criar profundidade por tom (`black`, `ground`, `panel`, `raised`) e filetes de 1px em `line`.",
+      "**Do** desativar o botão principal para grafite (`raised`, `text-3`).",
+      "**Do** respeitar `prefers-reduced-motion`: sem split-flap, sem giro, sem transições."
+    ],
+    "donts": [
+      "**Don't** usar laranja como cor de estado, de fundo decorativo ou em ícones soltos sobre grafite.",
+      "**Don't** colocar texto branco sobre laranja.",
+      "**Don't** introduzir uma segunda família de ícones, traços diferentes ou glifos de texto como ícone.",
+      "**Don't** adicionar sombras a placas, painéis ou botões; a elevação é só do diálogo.",
+      "**Don't** usar caixa alta forçada ou tracking aberto em rótulos.",
+      "**Don't** arredondar além de 4px fora do diálogo."
+    ]
+  }
+}
