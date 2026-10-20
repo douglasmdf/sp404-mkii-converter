@@ -59,6 +59,8 @@ type View = { kind: "plan"; plan: Plan } | { kind: "summary"; plan: Plan; summar
 
 interface Row {
   source: string;
+  /** Full source path, shown as a tooltip (loose files list only their name). */
+  sourcePath: string;
   target: string;
   prefix: string | null;
   state: RowState;
@@ -472,13 +474,14 @@ function describeWarning(warning: Warning): string {
 }
 
 function sourceLabel(pack: PackPlan, path: string): string {
-  return pack.loose ? path : relative(path, pack.sourceRoot);
+  return pack.loose ? fileName(path) : relative(path, pack.sourceRoot);
 }
 
 function planRow(pack: PackPlan, job: Job): Row {
   const uncertain = uncertaintyNotes(job.analysis);
   const row: Row = {
     source: sourceLabel(pack, job.source),
+    sourcePath: job.source,
     target: relative(job.dest, pack.destRoot),
     prefix: job.analysis?.prefix ?? null,
     state: job.kind === "copy" ? "copy" : "ok",
@@ -503,6 +506,7 @@ function summaryRow(pack: PackPlan, result: FileResult): Row {
   const uncertain = uncertaintyNotes(result.analysis);
   const row: Row = {
     source: sourceLabel(pack, result.source),
+    sourcePath: result.source,
     target: relative(result.dest, pack.destRoot),
     prefix: result.analysis?.prefix ?? null,
     state: result.status.kind === "copied" ? "copy" : "ok",
@@ -560,8 +564,9 @@ const STATE_ICONS: Record<RowState, IconName> = {
 };
 
 /** Long paths break only after a "/" (a <wbr>), never in the middle of a word. */
-function sourceCell(path: string): HTMLTableCellElement {
+function sourceCell(path: string, fullPath: string): HTMLTableCellElement {
   const cell = el("td", undefined, "source");
+  cell.title = fullPath;
   path.split("/").forEach((part, index, parts) => {
     cell.append(document.createTextNode(index < parts.length - 1 ? `${part}/` : part));
     if (index < parts.length - 1) cell.append(document.createElement("wbr"));
@@ -658,7 +663,7 @@ function renderResults() {
       const tr = el("tr", undefined, `state-${row.state}`);
       const stateCell = el("td", undefined, "col-state");
       stateCell.append(icon(STATE_ICONS[row.state]));
-      tr.append(stateCell, sourceCell(row.source), targetCell(row), el("td", row.notes.join(" · "), "note"));
+      tr.append(stateCell, sourceCell(row.source, row.sourcePath), targetCell(row), el("td", row.notes.join(" · "), "note"));
       rows.push(tr);
     }
   }
