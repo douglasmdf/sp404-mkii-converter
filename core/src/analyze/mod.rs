@@ -127,17 +127,26 @@ pub struct Detection {
 
 /// Decodes and analyses one file. A file with no audible sound (empty or silent) is an error.
 pub fn analyze_file(path: &Path, hints: &NameHints) -> Result<Detection> {
+    analyze_file_as(path, hints, None)
+}
+
+/// `analyze_file`, but with `kind` set the file is analysed as that kind (the user told the
+/// app what it is): no classification, and the kind counts as certain.
+pub fn analyze_file_as(path: &Path, hints: &NameHints, kind: Option<SampleKind>) -> Result<Detection> {
     let signal = signal::load(path)?;
     if signal.samples.is_empty() {
         return Err(CoreError::NoAudio);
     }
-    Ok(analyze_signal(&signal, hints))
+    Ok(analyze_signal_as(&signal, hints, kind))
 }
 
-pub(crate) fn analyze_signal(signal: &signal::Signal, hints: &NameHints) -> Detection {
+pub(crate) fn analyze_signal_as(signal: &signal::Signal, hints: &NameHints, forced: Option<SampleKind>) -> Detection {
     let features = features::extract(signal);
     let rhythm = tempo::Rhythm::new(&features, signal.loop_seconds());
-    let kind = classify::classify_with(signal, &features, hints, rhythm.periodicity());
+    let kind = match forced {
+        Some(value) => Estimate { value, confident: true },
+        None => classify::classify_with(signal, &features, hints, rhythm.periodicity()),
+    };
     let mut detection = Detection { kind: kind.clone(), note: None, chord: None, key: None, bpm: None };
     match kind.value {
         SampleKind::Unpitched => {}
@@ -170,19 +179,26 @@ struct CacheKey {
     size: u64,
     modified: Option<SystemTime>,
     hints: NameHints,
+    /// The kind the user chose for this file, if any (it changes what is estimated).
+    kind: Option<SampleKind>,
 }
 
 impl AnalysisCache {
     pub fn get_or_analyze(&self, path: &Path, hints: &NameHints) -> Result<Detection> {
+        self.get_or_analyze_as(path, hints, None)
+    }
+
+    /// `get_or_analyze` for a file whose kind the user chose (see `analyze_file_as`).
+    pub fn get_or_analyze_as(&self, path: &Path, hints: &NameHints, kind: Option<SampleKind>) -> Result<Detection> {
         let Ok(meta) = std::fs::metadata(path) else {
-            return analyze_file(path, hints);
+            return analyze_file_as(path, hints, kind);
         };
-        let key = CacheKey { path: path.to_path_buf(), size: meta.len(), modified: meta.modified().ok(), hints: hints.clone() };
+        let key = CacheKey { path: path.to_path_buf(), size: meta.len(), modified: meta.modified().ok(), hints: hints.clone(), kind };
         if let Some(found) = self.entries.lock().expect("lock").get(&key) {
             self.hits.fetch_add(1, Ordering::SeqCst);
             return found.clone().map_err(|message| message.map_or(CoreError::NoAudio, CoreError::Analysis));
         }
-        let result = analyze_file(path, hints);
+        let result = analyze_file_as(path, hints, kind);
         let kept = result.as_ref().map(Detection::clone).map_err(|e| match e {
             CoreError::NoAudio => None,
             e => Some(e.to_string()),

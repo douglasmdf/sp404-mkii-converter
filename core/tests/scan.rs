@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use common::*;
 use sp404_core::analyze::AnalysisCache;
 use sp404_core::config::{SaveMode, Settings};
-use sp404_core::scan::{build_plan, inspect_inputs, inspect_pack, plan_with, JobKind, Plan, PlanProgress, LOOSE_FOLDER_NAME};
+use sp404_core::scan::{build_plan, inspect_inputs, inspect_pack, plan_with, plan_with_kinds, JobKind, Plan, PlanProgress, LOOSE_FOLDER_NAME};
 use sp404_core::tags::SampleKind;
 use sp404_core::labeling::AnalysisErrorKind;
 use sp404_core::CoreError;
@@ -634,4 +634,35 @@ fn same_named_packs_still_get_numbered_outputs() {
     let plan = build_plan(&[tmp.path().join("a/Drums"), tmp.path().join("b/Drums")], Some(&out), &Settings::default()).unwrap();
     assert_eq!(plan.packs[0].dest_root, out.join("Drums"));
     assert_eq!(plan.packs[1].dest_root, out.join("Drums_2"));
+}
+
+#[test]
+fn user_kind_overrides_detection_and_renames() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pack = tmp.path().join("Pack");
+    let out = tmp.path().join("out");
+    detection_pack(&pack);
+    let cache = AnalysisCache::default();
+    let s = detecting();
+    let first = plan_with(&[pack.clone()], Some(&out), &s, &cache, &AtomicBool::new(false), |_| {}).unwrap();
+    assert!(rel_dests(&first).contains(&"One Shots/Bass/A_sub.wav".to_string()));
+
+    // The user says sub.wav is a drum one-shot: no note prefix, and the kind is no longer uncertain.
+    let sub = pack.join("One Shots/Bass/sub.wav");
+    let kinds = std::collections::HashMap::from([(sub.clone(), SampleKind::Unpitched)]);
+    let second = plan_with_kinds(&[pack.clone()], Some(&out), &s, &cache, &AtomicBool::new(false), &kinds, |_| {}).unwrap();
+    assert!(rel_dests(&second).contains(&"One Shots/Bass/sub.wav".to_string()), "{:?}", rel_dests(&second));
+    let job = second.packs[0].jobs.iter().find(|j| j.source == sub).unwrap();
+    let analysis = job.analysis.as_ref().unwrap();
+    assert_eq!(analysis.kind, SampleKind::Unpitched);
+    assert!(!analysis.kind_uncertain);
+    assert_eq!(analysis.prefix, None);
+
+    // Forcing a melodic loop on the clicks computes the key estimate it never had.
+    let clicks = pack.join("Loops/clicks (90bpm).wav");
+    let kinds = std::collections::HashMap::from([(clicks.clone(), SampleKind::MelodicLoop)]);
+    let third = plan_with_kinds(&[pack.clone()], Some(&out), &s, &cache, &AtomicBool::new(false), &kinds, |_| {}).unwrap();
+    let job = third.packs[0].jobs.iter().find(|j| j.source == clicks).unwrap();
+    assert_eq!(job.analysis.as_ref().unwrap().kind, SampleKind::MelodicLoop);
+    assert_eq!(job.analysis.as_ref().unwrap().bpm, Some(90));
 }

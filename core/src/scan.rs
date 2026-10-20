@@ -5,7 +5,7 @@
 //! with key/BPM detection on, analyse the convertible ones in parallel; then decide every
 //! name in order (collisions are resolved sequentially, so names are deterministic).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
@@ -20,6 +20,7 @@ use crate::error::{io_err, CoreError, Result};
 use crate::labeling::{self, Analysis};
 use crate::name_tags::{parse_name, remove_spans, Span};
 use crate::naming::{flatten_stem, sanitize_component, CollisionResolver};
+use crate::tags::SampleKind;
 
 pub const CONVERTIBLE_EXTENSIONS: &[&str] = &[
     "wav", "wave", "aif", "aiff", "aifc", "flac", "mp3", "m4a", "aac", "ogg", "oga", "caf",
@@ -189,6 +190,20 @@ pub fn plan_with(
     cancel: &AtomicBool,
     on_progress: impl Fn(PlanProgress) + Sync,
 ) -> Result<Plan> {
+    plan_with_kinds(inputs, output_dir, settings, cache, cancel, &HashMap::new(), on_progress)
+}
+
+/// `plan_with`, where `kinds` maps source files to the kind the user chose for them (in the
+/// Dry Run, for files whose type was uncertain). Those files are analysed as that kind.
+pub fn plan_with_kinds(
+    inputs: &[PathBuf],
+    output_dir: Option<&Path>,
+    settings: &Settings,
+    cache: &AnalysisCache,
+    cancel: &AtomicBool,
+    kinds: &HashMap<PathBuf, SampleKind>,
+    on_progress: impl Fn(PlanProgress) + Sync,
+) -> Result<Plan> {
     let (pack_dirs, files) = split_inputs(inputs)?;
     for file in &files {
         if classify(file) == JobKind::Copy {
@@ -234,7 +249,7 @@ pub fn plan_with(
         groups.push(collect_loose(&files, dest_root));
     }
     let analyses = if settings.detect_key_bpm {
-        analyze_groups(&groups, settings, cache, cancel, &on_progress)?
+        analyze_groups(&groups, settings, cache, cancel, kinds, &on_progress)?
     } else {
         groups.iter().map(|g| vec![None; g.entries.len()]).collect()
     };
@@ -322,6 +337,7 @@ fn analyze_groups(
     settings: &Settings,
     cache: &AnalysisCache,
     cancel: &AtomicBool,
+    kinds: &HashMap<PathBuf, SampleKind>,
     on_progress: &(impl Fn(PlanProgress) + Sync),
 ) -> Result<Vec<Vec<Found>>> {
     if cancel.load(Ordering::SeqCst) {
@@ -348,7 +364,7 @@ fn analyze_groups(
                 let entry = &groups[g].entries[i];
                 let tokens = parse_name(&entry.stem);
                 let hints = NameHints::from_path(&entry.hint_dirs, &entry.stem, &tokens);
-                let found = guarded(|| match cache.get_or_analyze(&entry.source, &hints) {
+                let found = guarded(|| match cache.get_or_analyze_as(&entry.source, &hints, kinds.get(&entry.source).copied()) {
                     Ok(detection) => labeling::resolve(&detection, &tokens, settings.bpm_range),
                     Err(e) => (labeling::failed(&e), Vec::new()),
                 });
