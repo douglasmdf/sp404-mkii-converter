@@ -349,12 +349,21 @@ function analysisProgress(): (event: api.PlanEvent) => void {
 }
 
 /** Builds the plan while showing the analysis progress; `undefined` when the user cancelled anywhere. */
-// Full sample/song has no kind of its own in the core: it is named like a loop.
+// A sample/song is a whole mix (melody and drums together): named like a melodic loop, with
+// key and BPM, and it needs no sound choice. Single note and chord only apply to one-shots.
 function kindOf(choice: KindChoice): SampleKind {
-  if (choice.shape === "oneShot") {
-    return { drum: "unpitched", melodic: "phrase", note: "note", chord: "chord" }[choice.sound] as SampleKind;
+  switch (choice.shape) {
+    case "oneShot":
+      return { drum: "unpitched", melodic: "phrase", note: "note", chord: "chord" }[choice.sound] as SampleKind;
+    case "loop":
+      return choice.sound === "drum" ? "drumLoop" : "melodicLoop";
+    case "full":
+      return "melodicLoop";
   }
-  return choice.sound === "drum" ? "drumLoop" : "melodicLoop";
+}
+
+function soundsFor(shape: Shape): [Sound, I18nKey][] {
+  return shape === "oneShot" ? SOUNDS : SOUNDS.filter(([sound]) => sound === "drum" || sound === "melodic");
 }
 
 function choiceOf(kind: SampleKind): KindChoice {
@@ -708,9 +717,15 @@ function kindFields(path: string, choice: KindChoice): HTMLElement {
     void replanForChoice();
   };
   box.append(
-    kindSegments("kShape", SHAPES, choice.shape, (shape) => choose({ ...choice, shape })),
-    kindSegments("kSound", SOUNDS, choice.sound, (sound) => choose({ ...choice, sound })),
+    kindSegments("kShape", SHAPES, choice.shape, (shape) => {
+      // Leaving one-shot drops a single-note or chord choice, which loops do not have.
+      const sound = soundsFor(shape).some(([s]) => s === choice.sound) ? choice.sound : "melodic";
+      choose({ shape, sound });
+    }),
   );
+  if (choice.shape !== "full") {
+    box.append(kindSegments("kSound", soundsFor(choice.shape), choice.sound, (sound) => choose({ ...choice, sound })));
+  }
   return box;
 }
 
