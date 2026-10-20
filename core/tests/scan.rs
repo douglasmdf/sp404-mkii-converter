@@ -10,6 +10,7 @@ use sp404_core::analyze::AnalysisCache;
 use sp404_core::config::{SaveMode, Settings};
 use sp404_core::scan::{build_plan, inspect_inputs, inspect_pack, plan_with, JobKind, Plan, PlanProgress, LOOSE_FOLDER_NAME};
 use sp404_core::tags::SampleKind;
+use sp404_core::labeling::AnalysisErrorKind;
 use sp404_core::CoreError;
 
 fn touch(root: &Path, rel: &str) {
@@ -494,6 +495,8 @@ fn unanalyzable_files_get_no_prefix() {
         assert_eq!(analysis(i).prefix, None);
     }
     assert!(analysis(0).error.is_some() && analysis(1).error.is_some());
+    let kinds: Vec<_> = (0..3).map(|i| analysis(i).error_kind).collect();
+    assert_eq!(kinds, [Some(AnalysisErrorKind::Unreadable), Some(AnalysisErrorKind::NoAudio), Some(AnalysisErrorKind::NoAudio)]);
 }
 
 #[test]
@@ -572,6 +575,9 @@ fn cache_keeps_failures_too() {
     assert_eq!(run(), first);
     assert_eq!(cache.hits(), 2);
     assert!(first.packs[0].jobs.iter().all(|j| j.analysis.as_ref().unwrap().error.is_some()));
+    // The reason survives the cache (the app shows it translated).
+    let kinds: Vec<_> = first.packs[0].jobs.iter().map(|j| j.analysis.as_ref().unwrap().error_kind).collect();
+    assert_eq!(kinds, [Some(AnalysisErrorKind::Unreadable), Some(AnalysisErrorKind::NoAudio)]);
 }
 
 #[test]

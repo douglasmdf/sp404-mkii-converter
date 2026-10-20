@@ -156,10 +156,11 @@ pub(crate) fn analyze_signal(signal: &signal::Signal, hints: &NameHints) -> Dete
 /// Detections kept in memory between plans (a Dry Run then a Convert analyse each file once).
 /// Keyed by path, size, modification time and hints (hints change the classification); the
 /// BPM range is applied afterwards, so it is not part of the key. Failures are kept too (as
-/// their message), so a broken file is not decoded again.
+/// their message, or `None` for `NoAudio` so its reason stays known), so a broken file is not
+/// decoded again.
 #[derive(Debug, Default)]
 pub struct AnalysisCache {
-    entries: Mutex<HashMap<CacheKey, std::result::Result<Detection, String>>>,
+    entries: Mutex<HashMap<CacheKey, std::result::Result<Detection, Option<String>>>>,
     hits: AtomicUsize,
 }
 
@@ -179,10 +180,13 @@ impl AnalysisCache {
         let key = CacheKey { path: path.to_path_buf(), size: meta.len(), modified: meta.modified().ok(), hints: hints.clone() };
         if let Some(found) = self.entries.lock().expect("lock").get(&key) {
             self.hits.fetch_add(1, Ordering::SeqCst);
-            return found.clone().map_err(CoreError::Analysis);
+            return found.clone().map_err(|message| message.map_or(CoreError::NoAudio, CoreError::Analysis));
         }
         let result = analyze_file(path, hints);
-        let kept = result.as_ref().map(Detection::clone).map_err(CoreError::to_string);
+        let kept = result.as_ref().map(Detection::clone).map_err(|e| match e {
+            CoreError::NoAudio => None,
+            e => Some(e.to_string()),
+        });
         self.entries.lock().expect("lock").insert(key, kept);
         result
     }

@@ -350,7 +350,7 @@ fn analyze_groups(
                 let hints = NameHints::from_path(&entry.hint_dirs, &entry.stem, &tokens);
                 let found = guarded(|| match cache.get_or_analyze(&entry.source, &hints) {
                     Ok(detection) => labeling::resolve(&detection, &tokens, settings.bpm_range),
-                    Err(e) => (labeling::failed(&e.to_string()), Vec::new()),
+                    Err(e) => (labeling::failed(&e), Vec::new()),
                 });
                 let done_now = done.fetch_add(1, Ordering::SeqCst) + 1;
                 on_progress(PlanProgress::Analyzing { done: done_now, total });
@@ -368,7 +368,7 @@ fn analyze_groups(
 /// Runs one file's analysis; a panic (a bug hit by an odd file) becomes a failed analysis
 /// instead of aborting the whole plan.
 fn guarded(analyze: impl FnOnce() -> (Analysis, Vec<Span>)) -> (Analysis, Vec<Span>) {
-    catch_unwind(AssertUnwindSafe(analyze)).unwrap_or_else(|_| (labeling::failed("analysis crashed"), Vec::new()))
+    catch_unwind(AssertUnwindSafe(analyze)).unwrap_or_else(|_| (labeling::crashed(), Vec::new()))
 }
 
 /// Decides every output name of a group, in order.
@@ -539,6 +539,7 @@ mod tests {
     fn a_panicking_analysis_becomes_a_failure() {
         let (analysis, spans) = guarded(|| panic!("odd file"));
         assert_eq!(analysis.error.as_deref(), Some("analysis crashed"));
+        assert_eq!(analysis.error_kind, Some(labeling::AnalysisErrorKind::Crashed));
         assert_eq!(analysis.prefix, None);
         assert!(spans.is_empty());
     }

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::analyze::{Detection, Estimate, ANALYZER_VERSION};
 use crate::config::BpmRange;
+use crate::error::CoreError;
 use crate::name_tags::{NameTokens, Span};
 use crate::tags::{self, fold_bpm, Chord, ChordQuality, Key, PitchClass, SampleKind};
 
@@ -26,12 +27,46 @@ pub struct Analysis {
     pub label_from_name: bool,
     pub bpm_from_name: bool,
     pub prefix: Option<String>,
+    /// Why the file could not be analysed, as text (CLI, JSON log).
     pub error: Option<String>,
+    /// The same reason as a code the app translates. Absent in plans from before it existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<AnalysisErrorKind>,
     pub analyzer_version: u32,
 }
 
-/// The analysis of a file that could not be analysed: no prefix, the reason in `error`.
-pub fn failed(error: &str) -> Analysis {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AnalysisErrorKind {
+    /// Empty or silent.
+    NoAudio,
+    /// The analyzer panicked on this file.
+    Crashed,
+    /// Could not be opened or decoded.
+    Unreadable,
+}
+
+impl AnalysisErrorKind {
+    pub fn of(error: &CoreError) -> AnalysisErrorKind {
+        match error {
+            CoreError::NoAudio => AnalysisErrorKind::NoAudio,
+            _ => AnalysisErrorKind::Unreadable,
+        }
+    }
+}
+
+/// The analysis of a file that could not be analysed: no prefix, the reason in `error` and
+/// `error_kind`.
+pub fn failed(error: &CoreError) -> Analysis {
+    failed_with(AnalysisErrorKind::of(error), &error.to_string())
+}
+
+/// The analysis of a file whose analysis panicked.
+pub fn crashed() -> Analysis {
+    failed_with(AnalysisErrorKind::Crashed, "analysis crashed")
+}
+
+fn failed_with(kind: AnalysisErrorKind, error: &str) -> Analysis {
     Analysis {
         kind: SampleKind::Unpitched,
         label: None,
@@ -43,6 +78,7 @@ pub fn failed(error: &str) -> Analysis {
         bpm_from_name: false,
         prefix: None,
         error: Some(error.to_string()),
+        error_kind: Some(kind),
         analyzer_version: ANALYZER_VERSION,
     }
 }
@@ -99,6 +135,7 @@ pub fn resolve(detection: &Detection, tokens: &NameTokens, range: BpmRange) -> (
         label_from_name: label.as_ref().is_some_and(|p| p.from_name),
         bpm_from_name: bpm.as_ref().is_some_and(|p| p.from_name),
         error: None,
+        error_kind: None,
         analyzer_version: ANALYZER_VERSION,
     };
     (analysis, spans)
@@ -350,7 +387,8 @@ mod tests {
 
     #[test]
     fn failed_has_no_prefix() {
-        let analysis = failed("could not decode audio: bad header");
+        let analysis = failed(&CoreError::Decode("bad header".into()));
+        assert_eq!(analysis.error_kind, Some(AnalysisErrorKind::Unreadable));
         assert_eq!(analysis.kind, SampleKind::Unpitched);
         assert_eq!(analysis.prefix, None);
         assert_eq!(analysis.error.as_deref(), Some("could not decode audio: bad header"));
@@ -359,8 +397,16 @@ mod tests {
 
     #[test]
     fn analysis_json_is_camel_case() {
-        let json = serde_json::to_string(&failed("x")).unwrap();
+        let json = serde_json::to_string(&failed(&CoreError::NoAudio)).unwrap();
         let version = format!("\"analyzerVersion\":{ANALYZER_VERSION}");
         assert!(json.contains(&version) && json.contains("\"kindUncertain\":false"), "{json}");
+        assert!(json.contains("\"errorKind\":\"noAudio\"") && json.contains("\"error\":\"the file has no audible sound\""), "{json}");
+        let crashed = serde_json::to_string(&crashed()).unwrap();
+        assert!(crashed.contains("\"errorKind\":\"crashed\""), "{crashed}");
+        // Plans written before the reason existed still load.
+        let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        value.as_object_mut().unwrap().remove("errorKind");
+        let old: Analysis = serde_json::from_value(value).unwrap();
+        assert_eq!(old.error_kind, None);
     }
 }

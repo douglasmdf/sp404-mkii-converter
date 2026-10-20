@@ -332,14 +332,14 @@ impl Metrics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sp404_core::labeling::failed;
+    use sp404_core::labeling::crashed;
 
     fn key(text: &str) -> Key {
         parse_key(text).unwrap()
     }
 
     fn analysis(kind: SampleKind, label: Option<&str>, bpm: Option<u32>) -> Analysis {
-        Analysis { kind, label: label.map(String::from), bpm, error: None, ..failed("x") }
+        Analysis { kind, label: label.map(String::from), bpm, error: None, error_kind: None, ..crashed() }
     }
 
     fn truth(kind: SampleKind, label: Option<&str>, bpm: Option<f32>) -> Label {

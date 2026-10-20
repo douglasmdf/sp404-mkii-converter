@@ -4,6 +4,7 @@ const en = {
   dropHint: "Drop sample pack folders or audio files here",
   addFolders: "Add folders…",
   addFiles: "Add files…",
+  audioFilesFilter: "Audio files",
   looseEntry: "Loose files ({count})",
   notAudio: "{name} is not an audio file and was not added",
   chooseOutputLoose: "Choose where to create the Samples [SP-404] folder",
@@ -58,7 +59,10 @@ const en = {
   bpmUncertain: "BPM uncertain",
   typeUncertain: "type uncertain",
   notAnalyzed: "not analyzed: {reason}",
-  uncertainCount: "{count} files with uncertain key/BPM — worth checking by ear",
+  errNoAudio: "no audible sound",
+  errCrashed: "analysis failed",
+  errUnreadable: "could not read the audio",
+  uncertainCount: "{count} files to check by ear (uncertain or not analyzed)",
 };
 
 type Key = keyof typeof en;
@@ -69,6 +73,7 @@ const pt: Record<Key, string> = {
   dropHint: "Arraste pastas de sample packs ou arquivos de áudio para cá",
   addFolders: "Adicionar pastas…",
   addFiles: "Adicionar arquivos…",
+  audioFilesFilter: "Arquivos de áudio",
   looseEntry: "Arquivos soltos ({count})",
   notAudio: "{name} não é um arquivo de áudio e não foi adicionado",
   chooseOutputLoose: "Escolha onde criar a pasta Samples [SP-404]",
@@ -123,7 +128,10 @@ const pt: Record<Key, string> = {
   bpmUncertain: "BPM incerto",
   typeUncertain: "tipo incerto",
   notAnalyzed: "não analisado: {reason}",
-  uncertainCount: "{count} arquivos com tom/BPM incerto — vale conferir de ouvido",
+  errNoAudio: "sem som audível",
+  errCrashed: "falha na análise",
+  errUnreadable: "não foi possível ler o áudio",
+  uncertainCount: "{count} arquivos para conferir de ouvido (incertos ou não analisados)",
 };
 
 const isPortuguese = navigator.language.toLowerCase().startsWith("pt");

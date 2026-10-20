@@ -139,7 +139,7 @@ async function addFiles() {
     directory: false,
     multiple: true,
     title: t("addFiles"),
-    filters: [{ name: "Audio", extensions: AUDIO_EXTENSIONS }],
+    filters: [{ name: t("audioFilesFilter"), extensions: AUDIO_EXTENSIONS }],
   });
   if (picked) await addPaths(Array.isArray(picked) ? picked : [picked]);
 }
@@ -182,9 +182,18 @@ async function buildPlan(): Promise<Plan | undefined> {
   }
 }
 
+const FAILURE_REASONS = { noAudio: "errNoAudio", crashed: "errCrashed", unreadable: "errUnreadable" } as const;
+
+// A plan from an older core has no errorKind: treat the failure as an unreadable file.
+function failureReason(analysis: Analysis): string {
+  return t(FAILURE_REASONS[analysis.errorKind ?? "unreadable"]);
+}
+
+// Files listed (and counted) as "to check by ear": any uncertain value, or not analysed.
+// The CLI counts the same thing.
 function uncertaintyNotes(analysis: Analysis | undefined): string[] {
   if (!analysis) return [];
-  if (analysis.error) return [t("notAnalyzed", { reason: analysis.error })];
+  if (analysis.error) return [t("notAnalyzed", { reason: failureReason(analysis) })];
   const notes: string[] = [];
   if (analysis.labelUncertain) notes.push(t("keyUncertain"));
   if (analysis.bpmUncertain) notes.push(t("bpmUncertain"));

@@ -108,7 +108,7 @@ fn run_one(item: &Item, opts: &Options) -> (Analysis, f64) {
     };
     let analysis = match analyze_file(&item.source, &hints) {
         Ok(detection) => labeling::resolve(&detection, &tokens, opts.range).0,
-        Err(e) => labeling::failed(&e.to_string()),
+        Err(e) => labeling::failed(&e),
     };
     (analysis, started.elapsed().as_secs_f64() * 1000.0)
 }

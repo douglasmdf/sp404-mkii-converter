@@ -44,9 +44,14 @@ export interface Analysis {
   labelFromName: boolean;
   bpmFromName: boolean;
   prefix: string | null;
+  /** Why the file could not be analysed, in English (CLI, JSON log). */
   error: string | null;
+  /** The same reason as a code the app translates. */
+  errorKind?: AnalysisErrorKind;
   analyzerVersion: number;
 }
+
+export type AnalysisErrorKind = "noAudio" | "crashed" | "unreadable";
 
 export type JobKind = "convert" | "copy" | "unsupported";
 
