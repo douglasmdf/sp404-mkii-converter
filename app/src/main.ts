@@ -1,17 +1,35 @@
+import "@fontsource/atkinson-hyperlegible-next/400.css";
+import "@fontsource/atkinson-hyperlegible-next/700.css";
+import "./styles.css";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import * as api from "./api";
-import type { Analysis, BpmRange, FileResult, PackSummary, Plan, SaveMode, Settings, Summary, Warning } from "./api";
-import { applyI18n, t } from "./i18n";
+import type { Analysis, BpmRange, FileResult, Job, PackPlan, PackSummary, Plan, SaveMode, Settings, Summary, Warning } from "./api";
+import { applyI18n, t, type I18nKey } from "./i18n";
+import { hydrateIcons, icon, type IconName } from "./icons";
 
 const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-const dropZone = byId<HTMLElement>("drop-zone");
 const packList = byId<HTMLUListElement>("pack-list");
-const output = byId<HTMLElement>("output");
-const progressSection = byId<HTMLElement>("progress");
-const progressBar = byId<HTMLProgressElement>("progress-bar");
-const progressLabel = byId<HTMLElement>("progress-label");
+const railEmpty = byId<HTMLElement>("rail-empty");
+const message = byId<HTMLElement>("message");
+const arrival = byId<HTMLElement>("arrival");
+const route = byId<HTMLElement>("route");
+const routeDest = byId<HTMLElement>("route-dest");
+const routeKeyBpm = byId<HTMLElement>("route-keybpm");
+const busySign = byId<HTMLElement>("busy-sign");
+const busyLabel = byId<HTMLElement>("busy-label");
+const results = byId<HTMLElement>("results");
+const resultsTitle = byId<HTMLElement>("results-title");
+const resultsCounts = byId<HTMLElement>("results-counts");
+const tabs = byId<HTMLElement>("tabs");
+const tableBody = byId<HTMLTableElement>("result-table").tBodies[0];
+const tableEmpty = byId<HTMLElement>("table-empty");
+const gateNumber = byId<HTMLElement>("gate-number");
+const gateLabel = byId<HTMLElement>("gate-label");
+const progress = byId<HTMLElement>("progress");
+const progressFill = byId<HTMLElement>("progress-fill");
+const footerHint = byId<HTMLElement>("footer-hint");
 const convertBtn = byId<HTMLButtonElement>("convert-btn");
 const dryRunBtn = byId<HTMLButtonElement>("dry-run-btn");
 const undoBtn = byId<HTMLButtonElement>("undo-btn");
@@ -20,6 +38,7 @@ const addFoldersBtn = byId<HTMLButtonElement>("add-folders-btn");
 const addFilesBtn = byId<HTMLButtonElement>("add-files-btn");
 const cancelBtn = byId<HTMLButtonElement>("cancel-btn");
 const settingsBtn = byId<HTMLButtonElement>("settings-btn");
+const routeSettingsBtn = byId<HTMLButtonElement>("route-settings-btn");
 const settingsDialog = byId<HTMLDialogElement>("settings-dialog");
 const settingsForm = byId<HTMLFormElement>("settings-form");
 const chooseFixedBtn = byId<HTMLButtonElement>("choose-fixed-btn");
@@ -31,10 +50,35 @@ const AUDIO_EXTENSIONS = [
   "opus", "wma", "ape", "wv", "mpc", "ra", "amr", "dsf", "dff",
 ];
 
+/** Where the user is on the way from a pack to the SD card; drives the sign band. */
+type Stage = "empty" | "ready" | "analyzing" | "reviewed" | "converting" | "done";
+type RowState = "ok" | "copy" | "check" | "skip" | "warn" | "error";
+type Tab = "all" | "check" | "skipped" | "problems";
+type View = { kind: "plan"; plan: Plan } | { kind: "summary"; plan: Plan; summary: Summary };
+
+interface Row {
+  source: string;
+  target: string;
+  prefix: string | null;
+  state: RowState;
+  /** Uncertain key/BPM/type, or not analysed: listed under "check by ear". */
+  uncertain: boolean;
+  notes: string[];
+}
+
+interface Group {
+  pack: PackPlan;
+  rows: Row[];
+}
+
 let packs: PackSummary[] = [];
 let looseFiles: string[] = [];
 let settings: Settings;
 let busy = false;
+let stage: Stage = "empty";
+let pendingAction: "dryRun" | "convert" = "dryRun";
+let view: View | null = null;
+let activeTab: Tab = "all";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, className?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
@@ -43,18 +87,116 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, classN
   return node;
 }
 
+function pict(name: IconName, className = "pict"): HTMLElement {
+  const box = el("span", undefined, className);
+  box.append(icon(name));
+  return box;
+}
+
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 const relative = (path: string, root: string) =>
   path.startsWith(root) ? path.slice(root.length).replace(/^[\\/]/, "") : path;
+const hasEntries = () => packs.length > 0 || looseFiles.length > 0;
+
+// ---------- the sign band ----------
+
+const STEPS = ["add", "review", "convert", "card"] as const;
+
+function currentStep(): (typeof STEPS)[number] {
+  switch (stage) {
+    case "empty":
+      return "add";
+    case "ready":
+      return "review";
+    case "analyzing":
+      return pendingAction === "dryRun" ? "review" : "convert";
+    case "reviewed":
+    case "converting":
+      return "convert";
+    case "done":
+      return "card";
+  }
+}
+
+function setGate(number: string, label: string) {
+  const resigned = gateLabel.textContent !== label;
+  gateNumber.textContent = number;
+  gateLabel.textContent = label;
+  // The band re-signs itself when the step changes: a split-flap turn, not on every progress tick.
+  if (resigned) {
+    gateNumber.classList.remove("flap");
+    void gateNumber.offsetWidth;
+    gateNumber.classList.add("flap");
+  }
+}
+
+function audioFileCount(): number {
+  return packs.reduce((sum, pack) => sum + pack.audioFiles, 0) + looseFiles.length;
+}
+
+function plannedWrites(plan: Plan): number {
+  return plan.packs.reduce(
+    (sum, pack) => sum + pack.jobs.filter((job) => job.kind !== "unsupported" && !job.alreadyExists).length,
+    0,
+  );
+}
+
+function renderBand() {
+  const now = STEPS.indexOf(currentStep());
+  document.querySelectorAll<HTMLLIElement>("#steps li").forEach((item, index) => {
+    item.classList.toggle("done", index < now);
+    item.classList.toggle("current", index === now);
+    if (index === now) item.setAttribute("aria-current", "step");
+    else item.removeAttribute("aria-current");
+    const box = item.querySelector(".pict")!;
+    box.replaceChildren(icon(index < now ? "check" : STEPS[index]));
+  });
+  if (stage === "empty") setGate("0", t("gateEmpty"));
+  else if (stage === "ready") setGate(String(audioFileCount()), t("gateAudio"));
+  else if (stage === "reviewed" && view) setGate(String(plannedWrites(view.plan)), t("gatePlanned"));
+  else if (stage === "done" && view?.kind === "summary") setGate(String(view.summary.converted + view.summary.copied), t("gateDone"));
+  document.body.dataset.stage = stage;
+}
+
+function setProgress(done: number, total: number, label: string) {
+  progress.hidden = false;
+  progressFill.style.width = `${total > 0 ? Math.min(100, (done / total) * 100) : 0}%`;
+  setGate(`${done}/${total}`, label);
+}
+
+// ---------- state and layout ----------
+
+function setStage(next: Stage) {
+  stage = next;
+  render();
+}
+
+function render() {
+  const working = stage === "analyzing" || stage === "converting";
+  arrival.hidden = stage !== "empty";
+  route.hidden = stage !== "ready";
+  busySign.hidden = !working;
+  results.hidden = !(stage === "reviewed" || stage === "done") || !view;
+  progress.hidden = !working;
+  footerHint.textContent = stage === "reviewed" ? t("nothingWritten") : "";
+  if (stage === "ready") renderRoute();
+  if (!results.hidden) renderResults();
+  renderBand();
+  refreshButtons();
+}
 
 function refreshButtons() {
-  const empty = packs.length === 0 && looseFiles.length === 0;
-  convertBtn.disabled = busy || empty;
-  dryRunBtn.disabled = busy || empty;
-  clearBtn.disabled = busy || empty;
+  const working = stage === "analyzing" || stage === "converting";
+  convertBtn.hidden = working;
+  dryRunBtn.hidden = working;
+  cancelBtn.hidden = !working;
+  convertBtn.disabled = busy || !hasEntries();
+  dryRunBtn.disabled = busy || !hasEntries();
+  clearBtn.disabled = busy || (!hasEntries() && !view);
   addFoldersBtn.disabled = busy;
   addFilesBtn.disabled = busy;
   settingsBtn.disabled = busy;
+  packList.querySelectorAll("button").forEach((button) => (button.disabled = busy));
 }
 
 async function refreshUndo() {
@@ -63,46 +205,61 @@ async function refreshUndo() {
 
 function setBusy(value: boolean) {
   busy = value;
-  progressSection.hidden = !value;
   undoBtn.disabled = value;
   refreshButtons();
 }
 
 function showMessage(text: string, kind: "info" | "error" = "info") {
-  output.replaceChildren(el("p", text, kind));
+  message.className = kind;
+  message.replaceChildren(pict(kind === "error" ? "error" : "warning"), el("p", text));
+  message.hidden = false;
+}
+
+function clearMessage() {
+  message.hidden = true;
+  message.replaceChildren();
+}
+
+/** New or removed entries invalidate any plan or summary on screen. */
+function entriesChanged() {
+  view = null;
+  renderPacks();
+  setStage(hasEntries() ? "ready" : "empty");
+}
+
+// ---------- entries rail ----------
+
+function entryItem(name: string, detail: string | null, onRemove: () => void): HTMLLIElement {
+  const item = el("li");
+  const text = el("div");
+  text.append(el("strong", name));
+  if (detail) text.append(el("span", detail));
+  const remove = el("button", undefined, "pict-btn small");
+  remove.append(icon("x"));
+  remove.title = t("remove");
+  remove.setAttribute("aria-label", `${t("remove")} ${name}`);
+  remove.addEventListener("click", onRemove);
+  item.append(text, remove);
+  return item;
 }
 
 function renderPacks() {
-  packList.replaceChildren(
-    ...packs.map((pack) => {
-      const item = el("li");
-      const remove = el("button", "×", "icon");
-      remove.title = t("remove");
-      remove.addEventListener("click", () => {
-        packs = packs.filter((p) => p.path !== pack.path);
-        renderPacks();
-      });
-      item.append(
-        el("strong", pack.name),
-        el("span", t("packFiles", { audio: pack.audioFiles, other: pack.otherFiles, unsupported: pack.unsupportedFiles }), "muted"),
-        remove,
-      );
-      return item;
+  const items = packs.map((pack) =>
+    entryItem(pack.name, t("packFiles", { audio: pack.audioFiles, other: pack.otherFiles, unsupported: pack.unsupportedFiles }), () => {
+      packs = packs.filter((p) => p.path !== pack.path);
+      entriesChanged();
     }),
   );
   if (looseFiles.length > 0) {
-    const item = el("li");
-    const remove = el("button", "×", "icon");
-    remove.title = t("remove");
-    remove.addEventListener("click", () => {
-      looseFiles = [];
-      renderPacks();
-    });
-    item.append(el("strong", t("looseEntry", { count: looseFiles.length })), remove);
-    packList.append(item);
+    items.push(
+      entryItem(t("looseEntry", { count: looseFiles.length }), null, () => {
+        looseFiles = [];
+        entriesChanged();
+      }),
+    );
   }
-  dropZone.classList.toggle("compact", packs.length > 0 || looseFiles.length > 0);
-  refreshButtons();
+  packList.replaceChildren(...items);
+  railEmpty.hidden = items.length > 0;
 }
 
 async function addPaths(paths: string[]) {
@@ -116,11 +273,11 @@ async function addPaths(paths: string[]) {
     for (const path of fresh) {
       if (!folderPaths.has(path) && !rejected.has(path) && !looseFiles.includes(path)) looseFiles.push(path);
     }
-    renderPacks();
+    entriesChanged();
     if (summary.rejected.length > 0) {
       showMessage(summary.rejected.map((path) => t("notAudio", { name: fileName(path) })).join("\n"), "error");
     } else {
-      output.replaceChildren();
+      clearMessage();
     }
   } catch (error) {
     showMessage(String(error), "error");
@@ -144,6 +301,22 @@ async function addFiles() {
   if (picked) await addPaths(Array.isArray(picked) ? picked : [picked]);
 }
 
+// ---------- route sign (entries added, nothing planned yet) ----------
+
+function renderRoute() {
+  const destinations: string[] = [];
+  if (packs.length > 0) {
+    if (settings.saveMode === "fixed" && settings.fixedDirectory) destinations.push(t("routeDestFixed", { path: settings.fixedDirectory }));
+    else if (settings.saveMode === "nextToSource") destinations.push(t("routeDestNext"));
+    else destinations.push(t("routeDestAsk"));
+  }
+  if (looseFiles.length > 0) destinations.push(t("routeDestLoose"));
+  routeDest.textContent = destinations.join(" ");
+  routeKeyBpm.textContent = settings.detectKeyBpm ? t("keyBpmOn", { range: settings.bpmRange.replace("-", "–") }) : t("keyBpmOff");
+}
+
+// ---------- planning and conversion ----------
+
 const CANCELLED = "cancelled";
 
 // Events from parallel workers can arrive out of order: show the highest count seen, never less.
@@ -151,9 +324,8 @@ function analysisProgress(): (event: api.PlanEvent) => void {
   let best = 0;
   return (event) => {
     best = Math.max(best, event.done);
-    progressBar.max = Math.max(event.total, 1);
-    progressBar.value = best;
-    progressLabel.textContent = t("analyzing", { done: best, total: event.total });
+    setProgress(best, event.total, t("gateAnalyzing"));
+    busyLabel.textContent = t("analyzing", { done: best, total: event.total });
   };
 }
 
@@ -167,10 +339,10 @@ async function buildPlan(): Promise<Plan | undefined> {
     outputDir = picked;
   }
   setBusy(true);
-  progressBar.max = 1;
-  progressBar.value = 0;
-  progressLabel.textContent = "";
-  output.replaceChildren();
+  clearMessage();
+  busyLabel.textContent = t("analyzing", { done: 0, total: audioFileCount() });
+  setStage("analyzing");
+  setProgress(0, audioFileCount(), t("gateAnalyzing"));
   try {
     return await api.planConversion([...packs.map((p) => p.path), ...looseFiles], outputDir, analysisProgress());
   } catch (error) {
@@ -182,118 +354,35 @@ async function buildPlan(): Promise<Plan | undefined> {
   }
 }
 
-const FAILURE_REASONS = { noAudio: "errNoAudio", crashed: "errCrashed", unreadable: "errUnreadable" } as const;
-
-// A plan from an older core has no errorKind: treat the failure as an unreadable file.
-function failureReason(analysis: Analysis): string {
-  return t(FAILURE_REASONS[analysis.errorKind ?? "unreadable"]);
-}
-
-// Files listed (and counted) as "to check by ear": any uncertain value, or not analysed.
-// The CLI counts the same thing.
-function uncertaintyNotes(analysis: Analysis | undefined): string[] {
-  if (!analysis) return [];
-  if (analysis.error) return [t("notAnalyzed", { reason: failureReason(analysis) })];
-  const notes: string[] = [];
-  if (analysis.labelUncertain) notes.push(t("keyUncertain"));
-  if (analysis.bpmUncertain) notes.push(t("bpmUncertain"));
-  if (analysis.kindUncertain) notes.push(t("typeUncertain"));
-  return notes;
-}
-
-function renderPlan(plan: Plan) {
-  const nodes: HTMLElement[] = [el("h2", t("dryRunTitle"))];
-  for (const pack of plan.packs) {
-    nodes.push(el("h3", `${pack.name} → ${pack.destRoot}`));
-    const list = el("ul", undefined, "file-list");
-    for (const job of pack.jobs) {
-      const uncertain = uncertaintyNotes(job.analysis);
-      let note = job.kind === "unsupported" ? ` — ${t("unsupported")}` : job.alreadyExists ? ` — ${t("willSkip")}` : "";
-      if (uncertain.length > 0) note += ` — ${uncertain.join("; ")}`;
-      let cls = job.kind === "unsupported" ? "error" : job.alreadyExists ? "muted" : undefined;
-      if (!cls && uncertain.length > 0) cls = "warning";
-      list.append(el("li", `${pack.loose ? job.source : relative(job.source, pack.sourceRoot)} → ${relative(job.dest, pack.destRoot)}${note}`, cls));
-    }
-    nodes.push(list);
-  }
-  output.replaceChildren(...nodes);
+function backToEntries() {
+  setStage(view ? (view.kind === "summary" ? "done" : "reviewed") : hasEntries() ? "ready" : "empty");
 }
 
 async function dryRun() {
-  if (busy || (packs.length === 0 && looseFiles.length === 0)) return;
+  if (busy || !hasEntries()) return;
   // Claim before any await (the folder dialog) so a double click cannot start a second run.
   busy = true;
+  pendingAction = "dryRun";
   refreshButtons();
   try {
     const plan = await buildPlan();
-    if (plan) renderPlan(plan);
+    if (plan) {
+      view = { kind: "plan", plan };
+      activeTab = "all";
+    }
   } catch (error) {
     showMessage(String(error), "error");
   } finally {
     setBusy(false);
+    backToEntries();
   }
-}
-
-function setProgress(done: number, total: number) {
-  progressBar.max = Math.max(total, 1);
-  progressBar.value = done;
-  progressLabel.textContent = t("progress", { done, total });
-}
-
-function describeWarning(warning: Warning): string {
-  switch (warning.kind) {
-    case "clipped":
-      return t("warnClipped", { samples: warning.samples });
-    case "tooLong":
-      return t("warnTooLong", { minutes: (warning.seconds / 60).toFixed(1) });
-    case "downmixed":
-      return t("warnDownmixed", { channels: warning.channels });
-  }
-}
-
-function describeResult(result: FileResult): HTMLElement | undefined {
-  const parts: string[] = [];
-  if (result.status.kind === "failed") parts.push(result.status.reason);
-  parts.push(...result.warnings.map(describeWarning));
-  if (parts.length === 0) return undefined;
-  return el("li", `${fileName(result.source)} — ${parts.join("; ")}`, result.status.kind === "failed" ? "error" : "warning");
-}
-
-function renderSummary(summary: Summary) {
-  const nodes: HTMLElement[] = [
-    el("h2", t("summaryTitle")),
-    el(
-      "p",
-      t("summaryCounts", {
-        converted: summary.converted,
-        copied: summary.copied,
-        skipped: summary.skipped,
-        failed: summary.failed,
-        cancelled: summary.cancelled,
-        warnings: summary.withWarnings,
-      }),
-    ),
-  ];
-  const uncertain = summary.results.filter((result) => uncertaintyNotes(result.analysis).length > 0);
-  if (uncertain.length > 0) {
-    nodes.push(el("p", t("uncertainCount", { count: uncertain.length }), "warning"));
-    const list = el("ul", undefined, "file-list");
-    list.append(...uncertain.map((result) => el("li", `${fileName(result.dest)} — ${uncertaintyNotes(result.analysis).join("; ")}`, "warning")));
-    nodes.push(list);
-  }
-  const problems = summary.results.map(describeResult).filter((item): item is HTMLElement => item !== undefined);
-  if (problems.length > 0) {
-    const list = el("ul", undefined, "file-list");
-    list.append(...problems);
-    nodes.push(list);
-  }
-  output.replaceChildren(...nodes);
 }
 
 async function convertAll() {
-  if (busy || (packs.length === 0 && looseFiles.length === 0)) return;
+  if (busy || !hasEntries()) return;
   // Claim before any await so a double click or a repeated shortcut cannot start a second run.
   busy = true;
+  pendingAction = "convert";
   refreshButtons();
   let plan: Plan | undefined;
   try {
@@ -303,21 +392,29 @@ async function convertAll() {
   }
   if (!plan) {
     setBusy(false);
+    backToEntries();
     return;
   }
+  const converting = plan;
   setBusy(true);
-  setProgress(0, 0);
-  output.replaceChildren();
+  busyLabel.textContent = t("progress", { done: 0, total: 0 });
+  setStage("converting");
+  setProgress(0, 0, t("gateConverting"));
   try {
-    const summary = await api.convert(plan, (event) => {
-      if (event.event === "started") setProgress(0, event.total);
-      else if (event.event === "fileDone") setProgress(event.done, event.total);
+    const summary = await api.convert(converting, (event) => {
+      if (event.event === "started" || event.event === "fileDone") {
+        const done = event.event === "started" ? 0 : event.done;
+        setProgress(done, event.total, t("gateConverting"));
+        busyLabel.textContent = t("progress", { done, total: event.total });
+      }
     });
-    renderSummary(summary);
+    view = { kind: "summary", plan: converting, summary };
+    activeTab = "all";
   } catch (error) {
     showMessage(String(error), "error");
   } finally {
     setBusy(false);
+    backToEntries();
     await refreshUndo();
   }
 }
@@ -338,6 +435,213 @@ async function undoLast() {
   }
   await refreshUndo();
 }
+
+// ---------- results: the plan (Dry Run) or the summary ----------
+
+const FAILURE_REASONS = { noAudio: "errNoAudio", crashed: "errCrashed", unreadable: "errUnreadable" } as const;
+
+// A plan from an older core has no errorKind: treat the failure as an unreadable file.
+function failureReason(analysis: Analysis): string {
+  return t(FAILURE_REASONS[analysis.errorKind ?? "unreadable"]);
+}
+
+// Files listed (and counted) as "to check by ear": any uncertain value, or not analysed.
+// The CLI counts the same thing.
+function uncertaintyNotes(analysis: Analysis | undefined): string[] {
+  if (!analysis) return [];
+  if (analysis.error) return [t("notAnalyzed", { reason: failureReason(analysis) })];
+  const notes: string[] = [];
+  if (analysis.labelUncertain) notes.push(t("keyUncertain"));
+  if (analysis.bpmUncertain) notes.push(t("bpmUncertain"));
+  if (analysis.kindUncertain) notes.push(t("typeUncertain"));
+  return notes;
+}
+
+function describeWarning(warning: Warning): string {
+  switch (warning.kind) {
+    case "clipped":
+      return t("warnClipped", { samples: warning.samples });
+    case "tooLong":
+      return t("warnTooLong", { minutes: (warning.seconds / 60).toFixed(1) });
+    case "downmixed":
+      return t("warnDownmixed", { channels: warning.channels });
+  }
+}
+
+function sourceLabel(pack: PackPlan, path: string): string {
+  return pack.loose ? path : relative(path, pack.sourceRoot);
+}
+
+function planRow(pack: PackPlan, job: Job): Row {
+  const uncertain = uncertaintyNotes(job.analysis);
+  const row: Row = {
+    source: sourceLabel(pack, job.source),
+    target: relative(job.dest, pack.destRoot),
+    prefix: job.analysis?.prefix ?? null,
+    state: job.kind === "copy" ? "copy" : "ok",
+    uncertain: uncertain.length > 0,
+    notes: [],
+  };
+  if (job.kind === "unsupported") {
+    row.state = "error";
+    row.notes.push(t("unsupported"));
+  } else if (job.alreadyExists) {
+    row.state = "skip";
+    row.notes.push(t("willSkip"));
+  }
+  if (uncertain.length > 0) {
+    row.notes.push(...uncertain);
+    if (row.state === "ok" || row.state === "copy") row.state = "check";
+  }
+  return row;
+}
+
+function summaryRow(pack: PackPlan, result: FileResult): Row {
+  const uncertain = uncertaintyNotes(result.analysis);
+  const row: Row = {
+    source: sourceLabel(pack, result.source),
+    target: relative(result.dest, pack.destRoot),
+    prefix: result.analysis?.prefix ?? null,
+    state: result.status.kind === "copied" ? "copy" : "ok",
+    uncertain: uncertain.length > 0,
+    notes: [],
+  };
+  if (result.status.kind === "failed") {
+    row.state = "error";
+    row.notes.push(result.status.reason);
+  } else if (result.status.kind === "skipped") {
+    row.state = "skip";
+    row.notes.push(t("willSkip"));
+  } else if (result.status.kind === "cancelled") {
+    row.state = "skip";
+    row.notes.push(t("cancelledNote"));
+  }
+  if (result.warnings.length > 0) {
+    row.notes.push(...result.warnings.map(describeWarning));
+    if (row.state !== "error") row.state = "warn";
+  }
+  if (uncertain.length > 0) {
+    row.notes.push(...uncertain);
+    if (row.state === "ok" || row.state === "copy") row.state = "check";
+  }
+  return row;
+}
+
+function groups(current: View): Group[] {
+  if (current.kind === "plan") {
+    return current.plan.packs.map((pack) => ({ pack, rows: pack.jobs.map((job) => planRow(pack, job)) }));
+  }
+  const byPack = new Map<PackPlan, Row[]>(current.plan.packs.map((pack) => [pack, []]));
+  for (const result of current.summary.results) {
+    const pack = current.plan.packs.find((p) => result.dest.startsWith(p.destRoot)) ?? current.plan.packs[0];
+    byPack.get(pack)?.push(summaryRow(pack, result));
+  }
+  return [...byPack].map(([pack, rows]) => ({ pack, rows }));
+}
+
+const TAB_FILTERS: Record<Tab, (row: Row) => boolean> = {
+  all: () => true,
+  check: (row) => row.uncertain,
+  skipped: (row) => row.state === "skip",
+  problems: (row) => row.state === "error" || row.state === "warn",
+};
+
+const TAB_LABELS: Record<Tab, I18nKey> = { all: "tabAll", check: "tabCheck", skipped: "tabSkipped", problems: "tabProblems" };
+const STATE_ICONS: Record<RowState, IconName> = {
+  ok: "check",
+  copy: "check",
+  check: "ear",
+  skip: "skip",
+  warn: "warning",
+  error: "error",
+};
+
+function folderOf(path: string): string {
+  return path.slice(0, path.length - fileName(path).length);
+}
+
+function targetCell(row: Row): HTMLTableCellElement {
+  const cell = el("td", undefined, "target");
+  const name = fileName(row.target);
+  // The folder only matters when it differs from the source's (cleaned or flattened folders).
+  const folder = folderOf(row.target);
+  if (folder && folder !== folderOf(row.source)) cell.append(el("span", folder, "folder"));
+  const label = el("span", undefined, "name");
+  if (row.prefix && name.startsWith(`${row.prefix}_`)) {
+    label.append(el("span", row.prefix, "tag"), document.createTextNode(name.slice(row.prefix.length)));
+  } else {
+    label.append(document.createTextNode(name));
+  }
+  cell.append(label);
+  return cell;
+}
+
+function renderResults() {
+  if (!view) return;
+  const all = groups(view);
+  const flat = all.flatMap((group) => group.rows);
+  const isPlan = view.kind === "plan";
+  resultsTitle.textContent = isPlan ? t("dryRunTitle") : t("summaryTitle");
+  if (view.kind === "summary") {
+    const s = view.summary;
+    resultsCounts.textContent = t("summaryCounts", {
+      converted: s.converted,
+      copied: s.copied,
+      skipped: s.skipped,
+      failed: s.failed,
+      cancelled: s.cancelled,
+      warnings: s.withWarnings,
+    });
+  } else {
+    resultsCounts.textContent = t("planCounts", {
+      write: plannedWrites(view.plan),
+      skipped: flat.filter((row) => row.state === "skip").length,
+      check: flat.filter(TAB_FILTERS.check).length,
+      unsupported: flat.filter((row) => row.state === "error").length,
+    });
+  }
+
+  tabs.replaceChildren(
+    ...(Object.keys(TAB_FILTERS) as Tab[]).map((tab) => {
+      const count = flat.filter(TAB_FILTERS[tab]).length;
+      const button = el("button", undefined, "tab");
+      button.setAttribute("role", "tab");
+      button.setAttribute("aria-selected", String(tab === activeTab));
+      button.append(el("span", t(TAB_LABELS[tab])), el("span", String(count), "count"));
+      button.disabled = tab !== "all" && count === 0;
+      button.addEventListener("click", () => {
+        activeTab = tab;
+        renderResults();
+      });
+      return button;
+    }),
+  );
+
+  const filter = TAB_FILTERS[activeTab];
+  const rows: HTMLTableRowElement[] = [];
+  for (const group of all) {
+    const visible = group.rows.filter(filter);
+    if (visible.length === 0) continue;
+    const head = el("tr", undefined, "group");
+    const cell = el("th");
+    cell.colSpan = 4;
+    cell.scope = "colgroup";
+    cell.append(el("strong", group.pack.name), pict("arrowRight", "arrow"), el("span", group.pack.destRoot));
+    head.append(cell);
+    rows.push(head);
+    for (const row of visible) {
+      const tr = el("tr", undefined, `state-${row.state}`);
+      const stateCell = el("td", undefined, "col-state");
+      stateCell.append(icon(STATE_ICONS[row.state]));
+      tr.append(stateCell, el("td", row.source, "source"), targetCell(row), el("td", row.notes.join(" · "), "note"));
+      rows.push(tr);
+    }
+  }
+  tableBody.replaceChildren(...rows);
+  tableEmpty.hidden = rows.length > 0;
+}
+
+// ---------- settings ----------
 
 const BOOLEAN_SETTINGS = ["sanitizeFilenames", "sanitizeFolderNames", "flattenFolders", "downmixMultichannel", "writeJsonLog", "detectKeyBpm"] as const;
 
@@ -383,10 +687,14 @@ function openSettings() {
   settingsDialog.showModal();
 }
 
+// ---------- start ----------
+
 async function init() {
   applyI18n();
+  hydrateIcons();
   settings = await api.getSettings();
   renderPacks();
+  render();
   await refreshUndo();
 
   addFoldersBtn.addEventListener("click", () => void addFolders());
@@ -398,10 +706,14 @@ async function init() {
   clearBtn.addEventListener("click", () => {
     packs = [];
     looseFiles = [];
-    renderPacks();
-    output.replaceChildren();
+    clearMessage();
+    entriesChanged();
   });
   settingsBtn.addEventListener("click", openSettings);
+  routeSettingsBtn.addEventListener("click", openSettings);
+  settingsDialog.addEventListener("close", () => {
+    if (stage === "ready") renderRoute();
+  });
   settingsForm.addEventListener("change", () => {
     settings = readSettingsForm();
     field<HTMLSelectElement>("bpmRange").disabled = !settings.detectKeyBpm;
@@ -432,11 +744,11 @@ async function init() {
   await getCurrentWebview().onDragDropEvent((event) => {
     const payload = event.payload;
     if (payload.type === "enter" || payload.type === "over") {
-      dropZone.classList.add("hover");
+      document.body.classList.toggle("dragging", !busy);
     } else if (payload.type === "leave") {
-      dropZone.classList.remove("hover");
+      document.body.classList.remove("dragging");
     } else if (payload.type === "drop") {
-      dropZone.classList.remove("hover");
+      document.body.classList.remove("dragging");
       void addPaths(payload.paths);
     }
   });

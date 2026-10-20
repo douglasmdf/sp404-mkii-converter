@@ -63,6 +63,41 @@ const en = {
   errCrashed: "analysis failed",
   errUnreadable: "could not read the audio",
   uncertainCount: "{count} files to check by ear (uncertain or not analyzed)",
+  stepAdd: "Add",
+  stepReview: "Check",
+  stepConvert: "Convert",
+  stepCard: "SD card",
+  gateEmpty: "files to convert",
+  gateAudio: "audio files",
+  gateAnalyzing: "analyzing",
+  gatePlanned: "will be written",
+  gateConverting: "converting",
+  gateDone: "ready for the SD card",
+  entriesTitle: "Entries",
+  noEntries: "No folders or files yet.",
+  dropRelease: "Release to add",
+  routeDryRun: "Shows every name on the SP-404 before anything is written.",
+  routeNamesTitle: "Key and BPM in names",
+  routeDestAsk: "Writes 16-bit · 48 kHz WAV to the folder you choose when converting.",
+  routeDestFixed: "Writes 16-bit · 48 kHz WAV to {path}",
+  routeDestNext: "Writes 16-bit · 48 kHz WAV next to each folder, as \u201c<pack> [SP-404]\u201d.",
+  routeDestLoose: "Loose files go to a Samples [SP-404] folder in the folder you choose.",
+  keyBpmOn: "On: added to the start of names, BPM range {range}.",
+  keyBpmOff: "Off: names keep only the original name.",
+  change: "Change",
+  colState: "State",
+  colSource: "Source",
+  colTarget: "Name on the SP-404",
+  colNote: "Note",
+  tabAll: "All",
+  tabCheck: "Check by ear",
+  tabSkipped: "Skipped",
+  tabProblems: "Errors and warnings",
+  tableEmpty: "Nothing in this list.",
+  nothingWritten: "Nothing was written yet",
+  cancelledNote: "cancelled",
+  planCounts: "{write} will be written · {skipped} already exist · {check} to check by ear · {unsupported} unsupported",
+  sKeyBpm: "Key and BPM",
 };
 
 type Key = keyof typeof en;
@@ -132,10 +167,47 @@ const pt: Record<Key, string> = {
   errCrashed: "falha na análise",
   errUnreadable: "não foi possível ler o áudio",
   uncertainCount: "{count} arquivos para conferir de ouvido (incertos ou não analisados)",
+  stepAdd: "Adicione",
+  stepReview: "Confira",
+  stepConvert: "Converta",
+  stepCard: "Cartão SD",
+  gateEmpty: "arquivos para converter",
+  gateAudio: "arquivos de áudio",
+  gateAnalyzing: "analisando",
+  gatePlanned: "serão gravados",
+  gateConverting: "convertendo",
+  gateDone: "prontos para o cartão SD",
+  entriesTitle: "Entradas",
+  noEntries: "Nenhuma pasta ou arquivo ainda.",
+  dropRelease: "Solte para adicionar",
+  routeDryRun: "Mostra cada nome na SP-404 antes de gravar qualquer coisa.",
+  routeNamesTitle: "Tom e BPM nos nomes",
+  routeDestAsk: "Grava WAV 16 bits · 48 kHz na pasta que você escolher ao converter.",
+  routeDestFixed: "Grava WAV 16 bits · 48 kHz em {path}",
+  routeDestNext: "Grava WAV 16 bits · 48 kHz ao lado de cada pasta, como \u201c<pack> [SP-404]\u201d.",
+  routeDestLoose: "Arquivos soltos vão para uma pasta Samples [SP-404] dentro da pasta que você escolher.",
+  keyBpmOn: "Ligado: entram no começo do nome, faixa de BPM {range}.",
+  keyBpmOff: "Desligado: os nomes ficam só com o nome original.",
+  change: "Alterar",
+  colState: "Estado",
+  colSource: "Origem",
+  colTarget: "Nome na SP-404",
+  colNote: "Observação",
+  tabAll: "Todos",
+  tabCheck: "Conferir de ouvido",
+  tabSkipped: "Pulados",
+  tabProblems: "Erros e avisos",
+  tableEmpty: "Nada nesta lista.",
+  nothingWritten: "Nada foi gravado ainda",
+  cancelledNote: "cancelado",
+  planCounts: "{write} serão gravados · {skipped} já existem · {check} para conferir de ouvido · {unsupported} não suportados",
+  sKeyBpm: "Tom e BPM",
 };
 
 const isPortuguese = navigator.language.toLowerCase().startsWith("pt");
 const dict: Record<Key, string> = isPortuguese ? pt : en;
+
+export type { Key as I18nKey };
 
 export function t(key: Key, vars: Record<string, string | number> = {}): string {
   return dict[key].replace(/\{(\w+)\}/g, (_, name: string) => String(vars[name] ?? ""));
@@ -148,6 +220,9 @@ export function applyI18n(root: ParentNode = document): void {
   });
   root.querySelectorAll<HTMLElement>("[data-i18n-title]").forEach((el) => {
     el.title = t(el.dataset.i18nTitle as Key);
+  });
+  root.querySelectorAll<HTMLElement>("[data-i18n-aria]").forEach((el) => {
+    el.setAttribute("aria-label", t(el.dataset.i18nAria as Key));
   });
   root.querySelectorAll<HTMLInputElement>("[data-i18n-placeholder]").forEach((el) => {
     el.placeholder = t(el.dataset.i18nPlaceholder as Key);

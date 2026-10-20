@@ -14,10 +14,10 @@
       {
         "label": "main",
         "title": "SP-404 MKII Converter",
-        "width": 760,
-        "height": 600,
-        "minWidth": 560,
-        "minHeight": 460,
+        "width": 1000,
+        "height": 700,
+        "minWidth": 760,
+        "minHeight": 540,
         "dragDropEnabled": true
       }
     ],

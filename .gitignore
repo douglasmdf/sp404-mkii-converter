@@ -3,3 +3,9 @@ node_modules/
 /app/dist/
 /app/src-tauri/gen/
 .DS_Store
+
+# design scratch (impeccable)
+/.impeccable/mocks/
+/.impeccable/review/
+/.claude/launch.json
+/app/mock-preview.html

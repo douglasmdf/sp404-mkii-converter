@@ -56,6 +56,7 @@ Fora do escopo por enquanto: organizar samples em bancos/pads da SP-404; ediçã
 
 - Nome: "SP-404 MKII Converter" (mantido por escolha do autor). "SP-404" é marca registrada da Roland; a distribuição pública precisa de um aviso de que o app não é afiliado nem endossado pela Roland.
 - Idioma principal do autor e do primeiro público: português do Brasil; inglês é o segundo idioma da interface.
+- Cores primárias da interface: cinza, preto e laranja, as cores da SP-404 MKII e da marca Roland (definido pelo autor em 2026-10-19).
 
 ## Evidence on Hand
 
