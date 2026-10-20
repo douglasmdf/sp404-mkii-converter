@@ -160,6 +160,9 @@ const LONG_FULL_SECONDS: f32 = 25.0;
 /// sound leans to loop) but below `LOOP_STRONG`, so folder and file words still decide (a
 /// 25 s riser in a `One Shots` folder stays a one-shot).
 const LONG_MAX_SCORE: f32 = 0.45;
+/// A sound at least this long with `LOOP_MIN_ONSETS` onsets is never a *sure* one-shot: a
+/// pad loop can have no visible pulse (`Super Synth Loop`, Kount pack: 13.5 s, 62 onsets).
+const LONG_UNSURE_SECONDS: f32 = 8.0;
 /// Both parts need at least this many onsets.
 const LOOP_MIN_ONSETS: usize = 3;
 const LOOP_STRONG: f32 = 0.5;
@@ -169,6 +172,8 @@ const LOOP_WEAK: f32 = 0.15;
 // loops and hats stay under ~0.22, melodic loops and pitched one-shots mostly above 0.25)...
 const PARTIALS_NONE: f32 = 0.12;
 const PARTIALS_FULL: f32 = 0.32;
+/// ...counted in full only once this share of the voiced frames has a clear f0...
+const PARTIALS_MIN_CLEAR: f32 = 0.02;
 /// ...and the f0 measure for short notes: tonality mapped from these bounds onto 0–1...
 const TONALITY_NONE: f32 = 0.5;
 const TONALITY_FULL: f32 = 0.8;
@@ -237,6 +242,7 @@ pub(crate) fn classify_with(signal: &Signal, features: &Features, hints: &NameHi
     } else {
         decide(loop_score(&sound), loop_bounds, loop_hint)
     };
+    let loop_sure = loop_sure && (is_loop || sound.seconds < LONG_UNSURE_SECONDS || sound.onsets < LOOP_MIN_ONSETS);
     let (pitched, pitch_sure) = decide(pitch_score(&sound), (PITCH_WEAK, PITCH_MIDPOINT, PITCH_STRONG), pitched_hint);
     let sure = loop_sure && pitch_sure;
 
@@ -296,7 +302,10 @@ fn pitch_score(sound: &Sound) -> f32 {
         * ramp(sound.f0_hz, CLEAR_MIN_HZ, CLEAR_FULL_HZ)
         * ramp(sound.seconds, 0.0, PITCH_FULL_SECONDS);
     let held = ramp(sound.held_notes as f32, HELD_NONE, HELD_FULL);
-    f0.max(ramp(sound.partials, PARTIALS_NONE, PARTIALS_FULL)).max(clear_f0).max(held) * (1.0 - sound.glide)
+    // Sustained partials with not a single clear f0 frame are a reverb tail or noise, not
+    // notes (`Tombstone Clap`, Kount pack); the quietest real case is `The Luv` at 4.6 %.
+    let partials = ramp(sound.partials, PARTIALS_NONE, PARTIALS_FULL) * ramp(sound.clear_share, 0.0, PARTIALS_MIN_CLEAR);
+    f0.max(partials).max(clear_f0).max(held) * (1.0 - sound.glide)
 }
 
 /// `(answer, confident)` for one question; see the module comment.
@@ -409,9 +418,10 @@ mod tests {
 
     #[test]
     fn long_sound_leans_to_loop_but_names_decide() {
-        // A 30 s held chord with a few soft re-attacks: long, pitched, no steady pulse.
-        let chords: Vec<&[f32]> = vec![&[57.0, 60.0, 64.0]; 3];
-        let pad = progression(&chords, &[45.0, 45.0, 45.0], 18.0, 3, 1);
+        // A 30 s pad whose notes come in every 7.1 s: long, pitched, no steady pulse. (Until
+        // analyzer v4 this was a chord re-struck every 3.3 s, but that is a pulse: 4 beats
+        // at 72 BPM, which the whole-bar periodicity of v5 rightly hears.)
+        let pad = rolled_chord(&[45.0, 57.0, 60.0, 64.0, 67.0], 7.1, 30.0);
         assert!(pad.source_seconds > 25.0, "{}", pad.source_seconds);
         let alone = classify(&pad, &extract(&pad), &NameHints::default());
         assert!(!alone.confident, "{alone:?}");
@@ -425,6 +435,29 @@ mod tests {
         let notes = [57.0, 60.0, 64.0, 67.0];
         assert_eq!(kind(&rolled_chord(&notes, 0.02, 2.5), &none), SampleKind::Chord);
         assert_eq!(kind(&rolled_chord(&notes, 0.3, 2.5), &none), SampleKind::Phrase);
+    }
+
+    /// A metallic ring: twelve inharmonic partials that hold for two seconds. Sustained
+    /// partials, but no frame with a clear f0 (like the reverb tail of a clap).
+    fn metallic_ring() -> Signal {
+        let rate = crate::analyze::ANALYSIS_RATE as f32;
+        let n = (2.0 * rate) as usize;
+        let freqs = [313.0, 487.0, 611.0, 829.0, 997.0, 1171.0, 1303.0, 1487.0, 1693.0, 1871.0, 2111.0, 2357.0];
+        let samples = (0..n)
+            .map(|i| {
+                let t = i as f32 / rate;
+                let sum: f32 = freqs.iter().map(|f| (std::f32::consts::TAU * f * t).sin()).sum();
+                0.04 * sum * (-t / 1.5).exp()
+            })
+            .collect();
+        Signal { samples, rate: rate as u32, source_seconds: 2.0, file_seconds: 2.0 }
+    }
+
+    #[test]
+    fn sustained_partials_without_a_clear_pitch_are_unpitched() {
+        let s = metallic_ring();
+        let found = classify(&s, &extract(&s), &NameHints::default());
+        assert_eq!(found.value, SampleKind::Unpitched, "{found:?}");
     }
 
     #[test]
@@ -457,3 +490,4 @@ mod tests {
         assert!(strong.confident);
     }
 }
+

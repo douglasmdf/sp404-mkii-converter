@@ -29,8 +29,10 @@ const FAMILY_MULTIPLES: usize = 8;
 /// of real loops wander by a frame or so).
 const FAMILY_TOLERANCE_FRAMES: f64 = 1.0;
 /// The power-of-two-beats candidate is taken when its score reaches this share of the best
-/// score over the octave, and is confident at `POW2_CONFIDENT`.
-const POW2_AGREE: f64 = 0.6;
+/// score over the octave, and is confident at `POW2_CONFIDENT`. On both test packs the right
+/// power-of-two tempo scores at least 0.52 of the best (`Pieces Sample`, Kount) and the wrong
+/// one at most 0.02 (`Can't go Back`, 30 beats).
+const POW2_AGREE: f64 = 0.5;
 const POW2_CONFIDENT: f64 = 0.75;
 /// Otherwise another whole-beat candidate is taken when it reaches this share of the best
 /// score and lies within `MAX_DRIFT` (relative) of the best grid tempo.
@@ -94,12 +96,22 @@ impl Rhythm {
         (self.seconds > 0.0).then(|| fold_octave(60.0 * beats / self.seconds))
     }
 
-    /// How much better the onsets fit the power-of-two-beats tempo than a typical tempo of the
+    /// How much better the onsets fit a tempo at which the length is a whole number of bars
+    /// (the power-of-two-beats tempo or any multiple of 4 beats) than a typical tempo of the
     /// octave (score minus the median score), 0–1. Near 0 for one-shots and sounds without a
-    /// steady pulse; for a trimmed loop, about the height of its beat autocorrelation.
+    /// steady pulse; for a trimmed loop, about the height of its beat autocorrelation. Whole bars
+    /// rather than only powers of two: `Dearly Synth Loop` (Kount pack) is 20 beats at 130 BPM.
+    /// The best one-shot of both test packs reaches 0.11 (`OP1_ReverseArp 1`).
     pub fn periodicity(&self) -> f32 {
-        let Some(tempo) = self.tempo_of(4.0) else { return 0.0 };
-        (self.family(tempo) - self.median()).clamp(0.0, 1.0) as f32
+        let Some(pow2) = self.tempo_of(4.0) else { return 0.0 };
+        let last = (2.0 * OCTAVE_LOW * self.seconds / 60.0).floor() as u64;
+        let bars = (4..=last)
+            .step_by(4)
+            .map(|beats| 60.0 * beats as f64 / self.seconds)
+            .filter(|bpm| (OCTAVE_LOW..2.0 * OCTAVE_LOW).contains(bpm))
+            .map(|bpm| self.family(bpm))
+            .fold(self.family(pow2), f64::max);
+        (bars - self.median()).clamp(0.0, 1.0) as f32
     }
 
     /// See [`estimate_bpm`].
@@ -232,6 +244,13 @@ mod tests {
         let signal = noise_hit(0.3);
         let found = estimate_bpm(&extract(&signal), signal.file_seconds);
         assert!(found.as_ref().is_none_or(|f| !f.confident), "{found:?}");
+    }
+
+    #[test]
+    fn whole_bars_that_are_not_a_power_of_two_are_periodic() {
+        // 20 beats (5 bars): the power-of-two tempo of this length is 104, not 130.
+        let clicks = click_loop(130.0, 20);
+        assert!(periodicity(&extract(&clicks), clicks.file_seconds) > 0.3);
     }
 
     #[test]

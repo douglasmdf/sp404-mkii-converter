@@ -43,12 +43,12 @@ const SEGMENT_SECONDS: f32 = 0.5;
 /// (after a tie-break) between the relative pair and the best key outside it.
 const KEY_MARGIN: f32 = 0.02;
 /// Second opinion: the key the Krumhansl-Kessler profiles pick from the same chromagram. A
-/// key is confident only when both agree (no second opinion → not confident). Basis: the
-/// DAYDREAMS files whose answer key is a loop or phrase with a key label (11 loops + 7
-/// phrases), counting only those the app also gave a key, 2 wrong and 16 right (calibrated with
-/// analyzer v3). The agreement rule plus the 0.02 near-tie margin flags both key errors (`Do the
-/// Thing`, `Thinking Back`) and 8 of the 16 correct keys; the earlier margins (0.05, and 0.15 on
-/// the tie-break evidence) flagged 0 of the 2 errors and 9 of the 16 correct keys.
+/// key is confident only when both agree (no second opinion → not confident). Counted like
+/// `sp404 analyze` does (every file whose answer key is a loop or phrase with a key label; a
+/// file the app calls something without a key counts as a key error). DAYDREAMS, 18 keys: this
+/// rule plus the 0.02 near-tie margin flags 3 of the 3 errors and 7 of the 15 correct keys; the
+/// earlier margins (0.05, and 0.15 on the tie-break evidence) flagged 1 of 3 and 8 of 15. Kount
+/// pack (not used to set it), 8 keys: 1 of 2 errors and 1 of 6 correct keys.
 const KK_MAJOR: [f32; 12] = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
 const KK_MINOR: [f32; 12] = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
 /// A pitch class is strong in a frame at this fraction of the frame's loudest class (a
