@@ -639,10 +639,10 @@ body.dragging #drop-veil {
   font-size: 12.5px;
 }
 #result-table thead th:nth-child(2) {
-  width: 33%;
+  width: 28%;
 }
 #result-table thead th:nth-child(3) {
-  width: 41%;
+  width: 34%;
 }
 #result-table thead th {
   position: sticky;
@@ -737,8 +737,7 @@ tr.group th {
   overflow-wrap: anywhere;
 }
 #result-table tr.state-check .col-state,
-#result-table tr.state-check .note,
-#result-table tr.state-check .note-inline {
+#result-table tr.state-check .note {
   color: var(--text);
 }
 #result-table tr.state-check .target {
@@ -748,20 +747,12 @@ tr.group th {
   color: var(--text-3);
 }
 #result-table tr.state-warn .col-state,
-#result-table tr.state-warn .note,
-#result-table tr.state-warn .note-inline {
+#result-table tr.state-warn .note {
   color: var(--warn);
 }
 #result-table tr.state-error .col-state,
-#result-table tr.state-error .note,
-#result-table tr.state-error .note-inline {
+#result-table tr.state-error .note {
   color: var(--error);
-}
-#result-table .note-inline {
-  display: none;
-  font: 12px var(--sans);
-  color: var(--text-2);
-  margin-top: 2px;
 }
 #table-empty {
   padding: 24px 10px;
@@ -946,21 +937,13 @@ select:disabled {
     min-width: 20px;
     padding: 2px 4px;
   }
-  /* the note column folds under the name, so the table sizes itself again */
-  #result-table {
-    table-layout: auto;
+  #result-table thead th:nth-child(2) {
+    width: 30%;
   }
-  #result-table thead th:nth-child(2),
   #result-table thead th:nth-child(3) {
-    width: auto;
+    width: 36%;
   }
-  #result-table thead th:last-child,
-  #result-table td.note {
-    display: none;
-  }
-  #result-table .note-inline {
-    display: block;
-  }
+
   #result-table td {
     padding: 6px 8px;
   }
@@ -1005,23 +988,56 @@ button.primary:disabled .pict .icon {
 
 /* ---------- type fields for files whose type was uncertain ---------- */
 
+.type-help {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
 .kind-fields {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   margin-top: 6px;
-  font: 12px var(--sans);
 }
 .kind-field {
   display: grid;
-  grid-template-columns: 62px minmax(0, 190px);
-  align-items: center;
-  gap: 8px;
-  color: var(--text-2);
+  gap: 3px;
 }
-.kind-field select {
-  height: 26px;
-  padding: 0 6px;
-  font-size: 12px;
+.kind-label {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.segments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  width: fit-content;
+  max-width: 100%;
+  border-radius: var(--radius);
+  background: var(--ground);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.segment {
+  height: 24px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-2);
+  font: 700 11.5px/1 var(--sans);
+  white-space: nowrap;
+}
+.segment:hover:not(:disabled) {
+  background: var(--raised);
+  color: var(--text);
+}
+.segment[aria-checked="true"],
+.segment[aria-checked="true"]:hover:not(:disabled) {
+  background: var(--black);
+  color: var(--orange);
+}
+.segment:disabled {
+  opacity: 0.5;
 }
 #result-table .note.ok {
   color: var(--text-2);

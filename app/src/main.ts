@@ -68,6 +68,8 @@ interface KindChoice {
 interface Row {
   /** Shown with the format/sound fields: the type was uncertain, or the user already chose one. */
   kindChoice: KindChoice | null;
+  /** The user chose this file's type (it is no longer uncertain). */
+  kindChosen: boolean;
   source: string;
   /** Full source path, shown as a tooltip (loose files list only their name). */
   sourcePath: string;
@@ -412,7 +414,7 @@ async function replanForChoice() {
   if (busy || view?.kind !== "plan") return;
   busy = true;
   refreshButtons();
-  tableBody.querySelectorAll("select").forEach((select) => (select.disabled = true));
+  tableBody.querySelectorAll<HTMLButtonElement>(".segment").forEach((button) => (button.disabled = true));
   const wrap = byId<HTMLElement>("table-wrap");
   const scroll = wrap.scrollTop;
   try {
@@ -557,6 +559,7 @@ function planRow(pack: PackPlan, job: Job): Row {
     uncertain: uncertain.length > 0,
     notes: [],
     kindChoice: null,
+    kindChosen: kindChoices.has(job.source),
   };
   const analysis = job.analysis;
   if (analysis && !analysis.error && (analysis.kindUncertain || kindChoices.has(job.source))) {
@@ -587,6 +590,7 @@ function summaryRow(pack: PackPlan, result: FileResult): Row {
     uncertain: uncertain.length > 0,
     notes: [],
     kindChoice: null,
+    kindChosen: false,
   };
   if (result.status.kind === "failed") {
     row.state = "error";
@@ -659,33 +663,41 @@ function targetCell(row: Row): HTMLTableCellElement {
   const folder = folderOf(row.target);
   if (folder && folder !== folderOf(row.source)) cell.append(el("span", folder, "folder"));
   const label = el("span", undefined, "name");
+  let rest = name;
   if (row.prefix && name.startsWith(`${row.prefix}_`)) {
-    label.append(el("span", row.prefix, "tag"), document.createTextNode(name.slice(row.prefix.length)));
-  } else {
-    label.append(document.createTextNode(name));
+    label.append(el("span", row.prefix, "tag"));
+    rest = name.slice(row.prefix.length);
   }
+  // Long names wrap after an underscore, not in the middle of a word.
+  rest.split(/(?<=_)/).forEach((part, index) => {
+    if (index > 0) label.append(document.createElement("wbr"));
+    label.append(document.createTextNode(part));
+  });
   cell.append(label);
-  // Narrow windows fold the note column into a second line under the name.
-  if (row.notes.length > 0) cell.append(el("span", row.notes.join(" · "), "note-inline"));
-  // The type fields sit right under the name they change.
-  if (row.kindChoice) cell.append(kindFields(row.sourcePath, row.kindChoice));
   return cell;
 }
 
 const SHAPES: [Shape, I18nKey][] = [["oneShot", "shapeOneShot"], ["loop", "shapeLoop"], ["full", "shapeFull"]];
 const SOUNDS: [Sound, I18nKey][] = [["drum", "soundDrum"], ["melodic", "soundMelodic"], ["note", "soundNote"], ["chord", "soundChord"]];
 
-function kindSelect<T extends string>(label: I18nKey, options: [T, I18nKey][], value: T, onChange: (value: T) => void): HTMLLabelElement {
-  const field = el("label", undefined, "kind-field");
-  const select = el("select");
+/** A segmented control: one button per option, the chosen one pressed. */
+function kindSegments<T extends string>(label: I18nKey, options: [T, I18nKey][], value: T, onChange: (value: T) => void): HTMLElement {
+  const field = el("div", undefined, "kind-field");
+  const group = el("div", undefined, "segments");
+  group.setAttribute("role", "radiogroup");
+  group.setAttribute("aria-label", t(label));
   for (const [optionValue, optionLabel] of options) {
-    const option = el("option", t(optionLabel));
-    option.value = optionValue;
-    select.append(option);
+    const button = el("button", t(optionLabel), "segment");
+    button.type = "button";
+    button.setAttribute("role", "radio");
+    button.setAttribute("aria-checked", String(optionValue === value));
+    button.disabled = busy;
+    button.addEventListener("click", () => {
+      if (optionValue !== value) onChange(optionValue);
+    });
+    group.append(button);
   }
-  select.value = value;
-  select.addEventListener("change", () => onChange(select.value as T));
-  field.append(el("span", t(label)), select);
+  field.append(el("span", t(label), "kind-label"), group);
   return field;
 }
 
@@ -696,15 +708,26 @@ function kindFields(path: string, choice: KindChoice): HTMLElement {
     void replanForChoice();
   };
   box.append(
-    kindSelect("kShape", SHAPES, choice.shape, (shape) => choose({ ...choice, shape })),
-    kindSelect("kSound", SOUNDS, choice.sound, (sound) => choose({ ...choice, sound })),
+    kindSegments("kShape", SHAPES, choice.shape, (shape) => choose({ ...choice, shape })),
+    kindSegments("kSound", SOUNDS, choice.sound, (sound) => choose({ ...choice, sound })),
   );
   return box;
 }
 
+/** The note, or a confirmation; under it, for a file of uncertain type, the type fields. */
 function noteCell(row: Row): HTMLTableCellElement {
-  if (row.notes.length > 0) return el("td", row.notes.join(" · "), "note");
-  return el("td", t("okNote"), "note ok");
+  const cell = el("td", undefined, "note");
+  if (row.notes.length > 0) {
+    cell.append(el("span", row.notes.join(" · ")));
+  } else {
+    cell.classList.add("ok");
+    cell.append(el("span", row.kindChosen ? t("typeChosen") : t("okNote")));
+  }
+  if (row.kindChoice) {
+    if (!row.kindChosen) cell.append(el("p", t("typeHelp"), "type-help"));
+    cell.append(kindFields(row.sourcePath, row.kindChoice));
+  }
+  return cell;
 }
 
 function renderResults() {
