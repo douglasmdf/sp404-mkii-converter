@@ -911,11 +911,20 @@ select:disabled {
   .counter span {
     font-size: 11px;
   }
+  #tabs {
+    gap: 0;
+  }
   .tab {
     height: 34px;
-    padding: 0 8px;
+    padding: 0 6px;
+    gap: 6px;
+    font-size: 13px;
   }
-  #result-table th:last-child,
+  .tab .count {
+    min-width: 20px;
+    padding: 2px 4px;
+  }
+  #result-table thead th:last-child,
   #result-table td.note {
     display: none;
   }
