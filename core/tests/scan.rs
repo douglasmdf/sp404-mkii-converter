@@ -434,8 +434,11 @@ fn detection_off_plan_is_unchanged() {
     touch(&pack, "One Shots/kick.aif");
     touch(&pack, "artwork.jpg");
     let plan = build_plan(&[pack.clone()], Some(&out), &Settings::default()).unwrap();
+    // Join one component at a time: `join("Breaks/x")` keeps the "/" on Windows, while the
+    // plan's paths use the platform separator.
+    let under = |root: &Path, rel: &str| rel.split('/').fold(root.to_path_buf(), |path, part| path.join(part));
     let job = |src: &str, dest: &str, kind: &str| {
-        serde_json::json!({ "source": pack.join(src), "dest": out.join("Pack").join(dest), "kind": kind, "alreadyExists": false })
+        serde_json::json!({ "source": under(&pack, src), "dest": under(&out.join("Pack"), dest), "kind": kind, "alreadyExists": false })
     };
     let expected = serde_json::json!({ "packs": [{
         "name": "Pack",
