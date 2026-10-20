@@ -219,6 +219,8 @@ const CHORD_WORDS: &[&str] = &["chord", "chords"];
 const PITCHED_WORDS: &[&str] = &["808", "bass", "keys", "piano", "synth", "pad", "lead", "guitar", "melody", "melodic", "vocal"];
 /// Pitched even inside drum folders.
 const ALWAYS_PITCHED_WORDS: &[&str] = &["808", "bass"];
+/// A file name that says "loop" is a loop when it lasts at least this long (seconds).
+const NAMED_LOOP_MIN_SECONDS: f32 = 1.0;
 
 pub fn classify(signal: &Signal, features: &Features, hints: &NameHints) -> Estimate<SampleKind> {
     let periodicity = signal.loop_seconds().map_or(0.0, |seconds| periodicity(features, seconds));
@@ -245,6 +247,22 @@ pub(crate) fn classify_with(signal: &Signal, features: &Features, hints: &NameHi
     };
     let loop_sure = loop_sure && (is_loop || sound.seconds < LONG_UNSURE_SECONDS || sound.onsets < LOOP_MIN_ONSETS);
     let (pitched, pitch_sure) = decide(pitch_score(&sound), (PITCH_WEAK, PITCH_MIDPOINT, PITCH_STRONG), pitched_hint);
+
+    // What the file name itself states beats the sound: sample packs name loops "Loop" and
+    // give the key only of melodic material. A vocal or a melodic loop with drums can measure
+    // like a drum loop (little sustained pitch), and a loop with a soft pulse like a one-shot
+    // (Cymatics vocal loops: "Angelic Tribe Vocal Loop - 109 BPM A# Min"). Only an explicit key
+    // or chord marks it pitched; an instrument word alone ("piano") still yields to a clear
+    // sound, and drum words in the file name keep a tuned "Kick F" unpitched.
+    let stem_has = |list: &[&str]| list.iter().any(|w| hints.stem_has_word(w));
+    // A name that states both a tempo and a key ("Middle Of Nowhere - 121 BPM A Min") is a
+    // loop too: packs give a BPM only to material cut to a tempo.
+    let named_tempo_and_key = hints.has_bpm_token && hints.has_key_token;
+    let named_loop = (stem_has(LOOP_WORDS) || named_tempo_and_key) && !stem_has(ONE_SHOT_WORDS) && sound.seconds >= NAMED_LOOP_MIN_SECONDS;
+    // Inside a file named as a loop, an instrument word ("Vocal Loop", "Keys Loop") is enough.
+    let named_pitched = (hints.has_key_token || (named_loop && stem_has(PITCHED_WORDS))) && !stem_has(DRUM_WORDS);
+    let (is_loop, loop_sure) = if named_loop { (true, true) } else { (is_loop, loop_sure) };
+    let (pitched, pitch_sure) = if named_pitched { (true, true) } else { (pitched, pitch_sure) };
     let sure = loop_sure && pitch_sure;
 
     let (value, confident) = match (is_loop, pitched) {
@@ -339,6 +357,47 @@ mod tests {
     use crate::analyze::features::extract;
     use crate::analyze::synth::{arpeggio, chord, click_loop, noise_hit, progression, rolled_chord, tone};
     use crate::name_tags::parse_name;
+
+    #[test]
+    fn file_name_that_says_loop_and_key_is_a_sure_melodic_loop() {
+        // A vocal loop can measure like a drum loop (little sustained pitch); the file name
+        // stating "Loop" plus a key settles it.
+        let signal = click_loop(109.0, 16);
+        let found = classify(&signal, &extract(&signal), &hints(&[], "Cymatics - Angelic Tribe Vocal Loop - 109 BPM A# Min"));
+        assert_eq!((found.value, found.confident), (SampleKind::MelodicLoop, true));
+    }
+
+    #[test]
+    fn file_name_that_says_drum_loop_stays_a_sure_drum_loop() {
+        let signal = click_loop(90.0, 16);
+        let found = classify(&signal, &extract(&signal), &hints(&[], "Drum Loop 90 BPM"));
+        assert_eq!((found.value, found.confident), (SampleKind::DrumLoop, true));
+    }
+
+    #[test]
+    fn bpm_and_key_in_the_file_name_make_a_sure_melodic_loop() {
+        // No "Loop" word, but a stated tempo and key: "Middle Of Nowhere - 121 BPM A Min".
+        // A held tone off the 121 BPM grid: the sound alone calls it a one-shot.
+        let signal = tone(57.0, 6.3, 4);
+        assert_ne!(kind(&signal, &NameHints::default()), SampleKind::MelodicLoop);
+        let found = classify(&signal, &extract(&signal), &hints(&[], "Cymatics - Middle Of Nowhere - 121 BPM A Min"));
+        assert_eq!((found.value, found.confident), (SampleKind::MelodicLoop, true));
+    }
+
+    #[test]
+    fn instrument_word_in_a_named_loop_makes_it_melodic() {
+        let signal = click_loop(98.0, 8);
+        let found = classify(&signal, &extract(&signal), &hints(&[], "Cymatics - Your Day Vocal Loop - 98 BPM"));
+        assert_eq!((found.value, found.confident), (SampleKind::MelodicLoop, true));
+    }
+
+    #[test]
+    fn loop_word_in_the_file_name_makes_a_sure_loop() {
+        let signal = click_loop(98.0, 8);
+        let found = classify(&signal, &extract(&signal), &hints(&[], "Your Day Vocal Loop"));
+        assert!(matches!(found.value, SampleKind::MelodicLoop | SampleKind::DrumLoop), "{:?}", found.value);
+        assert!(found.confident);
+    }
 
     fn kind(signal: &Signal, hints: &NameHints) -> SampleKind {
         classify(signal, &extract(signal), hints).value

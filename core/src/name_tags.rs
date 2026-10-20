@@ -173,25 +173,21 @@ pub fn parse_name(stem: &str) -> NameTokens {
             // Left for the bare pass below.
             continue;
         }
+        // A root (`A`, `A#`, `Bb`) followed by the word min/minor/maj/major: checked before the
+        // single-word key, or `A# Min` would read as A# major and leave `Min` in the name.
+        if let Some(next) = ws.get(i + 1).filter(|n| is_minor_word(n.text) || is_major_word(n.text)) {
+            if let Some((tonic, _, "")) = split_root(w.text) {
+                let key = Key { tonic, minor: is_minor_word(next.text) };
+                out.key = Some((key, vec![w.span(), next.span()]));
+                used[i] = true;
+                used[i + 1] = true;
+                continue;
+            }
+        }
         if let Some(key) = parse_key_word(w.text) {
             out.key = Some((key, vec![w.span()]));
             used[i] = true;
             continue;
-        }
-        // Letter followed by the word min/minor/maj/major.
-        if let Some(next) = ws.get(i + 1) {
-            let mut chars = w.text.chars();
-            if let (Some(l), None) = (chars.next(), chars.next()) {
-                if ('A'..='G').contains(&l) && (is_minor_word(next.text) || is_major_word(next.text)) {
-                    let key = Key {
-                        tonic: PitchClass::from_letter(l, 0),
-                        minor: is_minor_word(next.text),
-                    };
-                    out.key = Some((key, vec![w.span(), next.span()]));
-                    used[i] = true;
-                    used[i + 1] = true;
-                }
-            }
         }
     }
 
@@ -322,6 +318,21 @@ mod tests {
         assert_eq!(t.chord.as_ref().map(|(c, _)| c.label()).as_deref(), chord, "chord of {stem:?}");
         assert_eq!(t.bpm.as_ref().map(|(b, _)| *b), bpm, "bpm of {stem:?}");
         assert_eq!(remove_spans(stem, &all_spans(&t)), rest, "rest of {stem:?}");
+    }
+
+    #[test]
+    fn sharp_or_flat_root_followed_by_min_or_maj_word() {
+        // Cymatics names: "A# Min", "D# Maj" — the minor/major word belongs to the key.
+        for (stem, label) in [
+            ("Cymatics - Angelic Tribe Vocal Loop - 109 BPM A# Min", "Bbm"),
+            ("Cymatics - Belong Together Vocal Loop - 113 BPM D# Maj", "Eb"),
+            ("Loop Bb minor", "Bbm"),
+        ] {
+            let t = parse_name(stem);
+            assert_eq!(t.key.as_ref().map(|(k, _)| k.label()).as_deref(), Some(label), "{stem}");
+            let rest = remove_spans(stem, &all_spans(&t));
+            assert!(!rest.contains("Min") && !rest.contains("Maj") && !rest.contains("minor"), "{stem} -> {rest}");
+        }
     }
 
     #[test]

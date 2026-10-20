@@ -27,7 +27,7 @@ pub const ANALYSIS_RATE: u32 = 22_050;
 /// Only the start of a file is decoded and analysed.
 pub const MAX_ANALYSIS_SECONDS: f64 = 180.0;
 /// Bumped whenever thresholds or profiles change, so logs show which analyzer named a file.
-pub const ANALYZER_VERSION: u32 = 7;
+pub const ANALYZER_VERSION: u32 = 8;
 
 /// A detected value and whether the analyzer trusts it enough to name the file with it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -44,6 +44,9 @@ pub struct NameHints {
     pub has_bpm_token: bool,
     /// The marked BPM of the name, in hundredths (kept whole so hints stay hashable).
     pub name_bpm_centi: Option<u32>,
+    /// The file name's own words (a subset of `words`): what the file says about itself
+    /// weighs more than what its folders say.
+    pub stem_words: Vec<String>,
 }
 
 impl NameHints {
@@ -59,6 +62,7 @@ impl NameHints {
             has_key_token: tokens.key.is_some() || tokens.chord.is_some(),
             has_bpm_token: tokens.bpm.is_some(),
             name_bpm_centi: tokens.bpm.as_ref().map(|(b, _)| (b * 100.0).round() as u32),
+            stem_words: hint_words(stem),
         }
     }
 
@@ -68,9 +72,21 @@ impl NameHints {
 
     /// Whether `word` (a hint list entry such as `one shot` or `hi-hat`) is among the words.
     pub fn has_word(&self, word: &str) -> bool {
-        let wanted = hint_words(word);
-        !wanted.is_empty() && self.words.windows(wanted.len()).any(|w| w == wanted.as_slice())
+        contains_words(&self.words, word)
     }
+
+    /// `has_word`, in the file name only.
+    pub fn stem_has_word(&self, word: &str) -> bool {
+        contains_words(&self.stem_words, word)
+    }
+}
+
+fn contains_words(words: &[String], word: &str) -> bool {
+    let wanted = hint_words(word);
+    !wanted.is_empty() && words.windows(wanted.len()).any(|w| w == wanted.as_slice())
+}
+
+impl NameHints {
 }
 
 /// Lowercase words, split at anything that is not a letter or digit and between letters and
