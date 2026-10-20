@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -10,6 +11,7 @@ use sp404_core::runner::{self, Event, Summary};
 use sp404_core::scan::{self, InputsSummary, Plan, PlanProgress};
 use sp404_core::undo::{self, UndoReport};
 use sp404_core::space;
+use sp404_core::tags::SampleKind;
 use tauri::ipc::Channel;
 use tauri::State;
 
@@ -59,6 +61,7 @@ fn inspect_inputs(paths: Vec<PathBuf>) -> Result<InputsSummary, String> {
 async fn plan_conversion(
     paths: Vec<PathBuf>,
     output_dir: Option<PathBuf>,
+    kinds: Option<HashMap<PathBuf, SampleKind>>,
     on_event: Channel<PlanProgress>,
     state: State<'_, AppState>,
 ) -> Result<Plan, String> {
@@ -69,7 +72,8 @@ async fn plan_conversion(
     let cache = state.cache.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
-        scan::plan_with(&paths, output_dir.as_deref(), &settings, &cache, &cancel, |progress| {
+        let kinds = kinds.unwrap_or_default();
+        scan::plan_with_kinds(&paths, output_dir.as_deref(), &settings, &cache, &cancel, &kinds, |progress| {
             let _ = on_event.send(progress);
         })
         .map_err(|e| e.to_string())

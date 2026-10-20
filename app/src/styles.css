@@ -1002,3 +1002,27 @@ button.primary:disabled {
 button.primary:disabled .pict .icon {
   opacity: 0.4;
 }
+
+/* ---------- type fields for files whose type was uncertain ---------- */
+
+.kind-fields {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  font: 12px var(--sans);
+}
+.kind-field {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 190px);
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+}
+.kind-field select {
+  height: 26px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+#result-table .note.ok {
+  color: var(--text-2);
+}

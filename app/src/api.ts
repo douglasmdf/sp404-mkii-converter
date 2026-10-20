@@ -123,14 +123,16 @@ export interface UndoReport {
 export const getSettings = () => invoke<Settings>("get_settings");
 export const saveSettings = (settings: Settings) => invoke<void>("save_settings", { settings });
 export const inspectInputs = (paths: string[]) => invoke<InputsSummary>("inspect_inputs", { paths });
+/** `kinds`: source path -> the kind the user chose for a file whose type was uncertain. */
 export function planConversion(
   paths: string[],
   outputDir: string | null,
+  kinds: Record<string, SampleKind>,
   onEvent: (event: PlanEvent) => void,
 ): Promise<Plan> {
   const channel = new Channel<PlanEvent>();
   channel.onmessage = onEvent;
-  return invoke<Plan>("plan_conversion", { paths, outputDir, onEvent: channel });
+  return invoke<Plan>("plan_conversion", { paths, outputDir, kinds, onEvent: channel });
 }
 export const cancelConversion = () => invoke<void>("cancel_conversion");
 export const undoLast = (removeEmptyDirs: boolean) => invoke<UndoReport | null>("undo_last", { removeEmptyDirs });

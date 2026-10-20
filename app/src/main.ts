@@ -4,7 +4,7 @@ import "./styles.css";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import * as api from "./api";
-import type { Analysis, BpmRange, FileResult, Job, PackPlan, PackSummary, Plan, SaveMode, Settings, Summary, Warning } from "./api";
+import type { Analysis, BpmRange, FileResult, Job, PackPlan, PackSummary, Plan, SampleKind, SaveMode, Settings, Summary, Warning } from "./api";
 import { applyI18n, t, type I18nKey } from "./i18n";
 import { hydrateIcons, icon, type IconName } from "./icons";
 
@@ -57,7 +57,17 @@ type RowState = "ok" | "copy" | "check" | "skip" | "warn" | "error";
 type Tab = "all" | "check" | "skipped" | "problems";
 type View = { kind: "plan"; plan: Plan } | { kind: "summary"; plan: Plan; summary: Summary };
 
+/** What the user says an uncertain file is: two choices that map to one SampleKind. */
+type Shape = "oneShot" | "loop" | "full";
+type Sound = "drum" | "melodic" | "note" | "chord";
+interface KindChoice {
+  shape: Shape;
+  sound: Sound;
+}
+
 interface Row {
+  /** Shown with the format/sound fields: the type was uncertain, or the user already chose one. */
+  kindChoice: KindChoice | null;
   source: string;
   /** Full source path, shown as a tooltip (loose files list only their name). */
   sourcePath: string;
@@ -82,6 +92,10 @@ let stage: Stage = "empty";
 let pendingAction: "dryRun" | "convert" = "dryRun";
 let view: View | null = null;
 let activeTab: Tab = "all";
+/** The user's type choices, by source path; sent with every plan until the entries are cleared. */
+const kindChoices = new Map<string, KindChoice>();
+/** The output folder picked for the last Dry Run, reused when a type choice re-plans. */
+let lastOutputDir: string | null = null;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, className?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
@@ -333,6 +347,39 @@ function analysisProgress(): (event: api.PlanEvent) => void {
 }
 
 /** Builds the plan while showing the analysis progress; `undefined` when the user cancelled anywhere. */
+// Full sample/song has no kind of its own in the core: it is named like a loop.
+function kindOf(choice: KindChoice): SampleKind {
+  if (choice.shape === "oneShot") {
+    return { drum: "unpitched", melodic: "phrase", note: "note", chord: "chord" }[choice.sound] as SampleKind;
+  }
+  return choice.sound === "drum" ? "drumLoop" : "melodicLoop";
+}
+
+function choiceOf(kind: SampleKind): KindChoice {
+  switch (kind) {
+    case "unpitched":
+      return { shape: "oneShot", sound: "drum" };
+    case "note":
+      return { shape: "oneShot", sound: "note" };
+    case "chord":
+      return { shape: "oneShot", sound: "chord" };
+    case "phrase":
+      return { shape: "oneShot", sound: "melodic" };
+    case "melodicLoop":
+      return { shape: "loop", sound: "melodic" };
+    case "drumLoop":
+      return { shape: "loop", sound: "drum" };
+  }
+}
+
+function chosenKinds(): Record<string, SampleKind> {
+  return Object.fromEntries([...kindChoices].map(([path, choice]) => [path, kindOf(choice)]));
+}
+
+function inputPaths(): string[] {
+  return [...packs.map((p) => p.path), ...looseFiles];
+}
+
 async function buildPlan(): Promise<Plan | undefined> {
   let outputDir: string | null = null;
   if (settings.saveMode === "ask" || looseFiles.length > 0) {
@@ -341,6 +388,7 @@ async function buildPlan(): Promise<Plan | undefined> {
     if (typeof picked !== "string") return undefined;
     outputDir = picked;
   }
+  lastOutputDir = outputDir;
   setBusy(true);
   clearMessage();
   busyLabel.textContent = t("analyzing", { done: 0, total: audioFileCount() });
@@ -348,13 +396,34 @@ async function buildPlan(): Promise<Plan | undefined> {
   setStage("analyzing");
   setProgress(0, audioFileCount(), t("gateAnalyzing"));
   try {
-    return await api.planConversion([...packs.map((p) => p.path), ...looseFiles], outputDir, analysisProgress());
+    return await api.planConversion(inputPaths(), outputDir, chosenKinds(), analysisProgress());
   } catch (error) {
     if (String(error) === CANCELLED) {
       showMessage(t("analysisCancelled"));
       return undefined;
     }
     throw error;
+  }
+}
+
+/** A type choice changed: re-plan in place (only that file is analysed again), keeping the
+ *  output folder, the tab and the scroll position. */
+async function replanForChoice() {
+  if (busy || view?.kind !== "plan") return;
+  busy = true;
+  refreshButtons();
+  tableBody.querySelectorAll("select").forEach((select) => (select.disabled = true));
+  const wrap = byId<HTMLElement>("table-wrap");
+  const scroll = wrap.scrollTop;
+  try {
+    const plan = await api.planConversion(inputPaths(), lastOutputDir, chosenKinds(), () => {});
+    view = { kind: "plan", plan };
+  } catch (error) {
+    showMessage(String(error), "error");
+  } finally {
+    busy = false;
+    render();
+    wrap.scrollTop = scroll;
   }
 }
 
@@ -487,13 +556,18 @@ function planRow(pack: PackPlan, job: Job): Row {
     state: job.kind === "copy" ? "copy" : "ok",
     uncertain: uncertain.length > 0,
     notes: [],
+    kindChoice: null,
   };
+  const analysis = job.analysis;
+  if (analysis && !analysis.error && (analysis.kindUncertain || kindChoices.has(job.source))) {
+    row.kindChoice = kindChoices.get(job.source) ?? choiceOf(analysis.kind);
+  }
   if (job.kind === "unsupported") {
     row.state = "error";
     row.notes.push(t("unsupported"));
   } else if (job.alreadyExists) {
+    // Already converted: listed under "Skipped", nothing to report on the row itself.
     row.state = "skip";
-    row.notes.push(t("willSkip"));
   }
   if (uncertain.length > 0) {
     row.notes.push(...uncertain);
@@ -512,13 +586,13 @@ function summaryRow(pack: PackPlan, result: FileResult): Row {
     state: result.status.kind === "copied" ? "copy" : "ok",
     uncertain: uncertain.length > 0,
     notes: [],
+    kindChoice: null,
   };
   if (result.status.kind === "failed") {
     row.state = "error";
     row.notes.push(result.status.reason);
   } else if (result.status.kind === "skipped") {
     row.state = "skip";
-    row.notes.push(t("willSkip"));
   } else if (result.status.kind === "cancelled") {
     row.state = "skip";
     row.notes.push(t("cancelledNote"));
@@ -593,7 +667,44 @@ function targetCell(row: Row): HTMLTableCellElement {
   cell.append(label);
   // Narrow windows fold the note column into a second line under the name.
   if (row.notes.length > 0) cell.append(el("span", row.notes.join(" · "), "note-inline"));
+  // The type fields sit right under the name they change.
+  if (row.kindChoice) cell.append(kindFields(row.sourcePath, row.kindChoice));
   return cell;
+}
+
+const SHAPES: [Shape, I18nKey][] = [["oneShot", "shapeOneShot"], ["loop", "shapeLoop"], ["full", "shapeFull"]];
+const SOUNDS: [Sound, I18nKey][] = [["drum", "soundDrum"], ["melodic", "soundMelodic"], ["note", "soundNote"], ["chord", "soundChord"]];
+
+function kindSelect<T extends string>(label: I18nKey, options: [T, I18nKey][], value: T, onChange: (value: T) => void): HTMLLabelElement {
+  const field = el("label", undefined, "kind-field");
+  const select = el("select");
+  for (const [optionValue, optionLabel] of options) {
+    const option = el("option", t(optionLabel));
+    option.value = optionValue;
+    select.append(option);
+  }
+  select.value = value;
+  select.addEventListener("change", () => onChange(select.value as T));
+  field.append(el("span", t(label)), select);
+  return field;
+}
+
+function kindFields(path: string, choice: KindChoice): HTMLElement {
+  const box = el("div", undefined, "kind-fields");
+  const choose = (next: KindChoice) => {
+    kindChoices.set(path, next);
+    void replanForChoice();
+  };
+  box.append(
+    kindSelect("kShape", SHAPES, choice.shape, (shape) => choose({ ...choice, shape })),
+    kindSelect("kSound", SOUNDS, choice.sound, (sound) => choose({ ...choice, sound })),
+  );
+  return box;
+}
+
+function noteCell(row: Row): HTMLTableCellElement {
+  if (row.notes.length > 0) return el("td", row.notes.join(" · "), "note");
+  return el("td", t("okNote"), "note ok");
 }
 
 function renderResults() {
@@ -663,7 +774,7 @@ function renderResults() {
       const tr = el("tr", undefined, `state-${row.state}`);
       const stateCell = el("td", undefined, "col-state");
       stateCell.append(icon(STATE_ICONS[row.state]));
-      tr.append(stateCell, sourceCell(row.source, row.sourcePath), targetCell(row), el("td", row.notes.join(" · "), "note"));
+      tr.append(stateCell, sourceCell(row.source, row.sourcePath), targetCell(row), noteCell(row));
       rows.push(tr);
     }
   }
@@ -736,6 +847,7 @@ async function init() {
   clearBtn.addEventListener("click", () => {
     packs = [];
     looseFiles = [];
+    kindChoices.clear();
     clearMessage();
     entriesChanged();
   });
