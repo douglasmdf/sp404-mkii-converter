@@ -16,6 +16,8 @@ pub enum CoreError {
     NotAudioFile(PathBuf),
     #[error("output folder {dest} overlaps the source folder {source_dir}")]
     OutputInsideSource { dest: PathBuf, source_dir: PathBuf },
+    #[error("output folders {a} and {b} overlap")]
+    OutputsOverlap { a: PathBuf, b: PathBuf },
     #[error("no output folder chosen")]
     NoOutputDir,
     #[error("unsupported audio format")]

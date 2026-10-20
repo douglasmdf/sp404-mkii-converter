@@ -447,13 +447,15 @@ fn pack_dest_root(source_root: &Path, name: &str, output_dir: Option<&Path>, set
 }
 
 /// No output folder may equal, sit inside, or contain any source (folder or loose file) of the
-/// batch — otherwise converted files would mix with (or land among) someone's originals.
+/// batch — otherwise converted files would mix with (or land among) someone's originals —
+/// nor equal, sit inside, or contain another output folder of the batch (seen through
+/// symlinks), or one group's files would land among another's.
 fn ensure_no_overlap(sources: &[&PathBuf], dests: &[&PathBuf]) -> Result<()> {
     let sources: Vec<(&PathBuf, PathBuf)> = sources.iter().map(|src| (*src, resolve_path(src))).collect();
-    for dest_root in dests {
-        let dest = resolve_path(dest_root);
+    let dests: Vec<(&PathBuf, PathBuf)> = dests.iter().map(|dest| (*dest, resolve_path(dest))).collect();
+    for (dest_root, dest) in &dests {
         for (source_root, source) in &sources {
-            if dest.starts_with(source) || source.starts_with(&dest) {
+            if dest.starts_with(source) || source.starts_with(dest) {
                 return Err(CoreError::OutputInsideSource {
                     dest: (*dest_root).clone(),
                     source_dir: (*source_root).clone(),
@@ -461,7 +463,22 @@ fn ensure_no_overlap(sources: &[&PathBuf], dests: &[&PathBuf]) -> Result<()> {
             }
         }
     }
+    for (i, (a_root, a)) in dests.iter().enumerate() {
+        for (b_root, b) in &dests[i + 1..] {
+            if contains_ignoring_case(a, b) || contains_ignoring_case(b, a) {
+                return Err(CoreError::OutputsOverlap { a: (*a_root).clone(), b: (*b_root).clone() });
+            }
+        }
+    }
     Ok(())
+}
+
+/// `path.starts_with(base)` comparing components without case, like the output-root
+/// numbering does (macOS and Windows folders are case-insensitive by default).
+fn contains_ignoring_case(path: &Path, base: &Path) -> bool {
+    let lower = |p: &Path| -> Vec<String> { p.iter().map(|c| c.to_string_lossy().to_lowercase()).collect() };
+    let (path, base) = (lower(path), lower(base));
+    path.len() >= base.len() && path[..base.len()] == base[..]
 }
 
 /// Absolute path with symlinks resolved for the part that exists (so `/var` and

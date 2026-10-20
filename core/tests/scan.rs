@@ -583,3 +583,49 @@ fn limit_shorter_than_prefix_keeps_it_whole() {
     s.max_filename_length = Some(2);
     assert_eq!(rel_dests(&plan(&pack, &out, &s)), ["Loops/140.wav", "Loops/140_2.wav"]);
 }
+
+#[test]
+fn loose_output_inside_a_pack_output_is_rejected() {
+    // Final whole-branch review item 2: the loose folder would land inside a pack's output.
+    let tmp = tempfile::tempdir().unwrap();
+    touch(tmp.path(), "Pack/snare.wav");
+    touch(tmp.path(), "kick.wav");
+    let fixed = tmp.path().join("fixed");
+    let mut s = Settings::default();
+    s.save_mode = SaveMode::Fixed;
+    s.fixed_directory = Some(fixed.clone());
+    let inputs = [tmp.path().join("Pack"), tmp.path().join("kick.wav")];
+    let result = build_plan(&inputs, Some(&fixed.join("Pack")), &s);
+    assert!(matches!(result, Err(CoreError::OutputsOverlap { .. })), "{result:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn outputs_spelled_through_a_symlink_are_rejected() {
+    // The fixed folder is a symlink to the loose output folder, so a pack named like the
+    // loose folder would write into the very same folder under another spelling.
+    let tmp = tempfile::tempdir().unwrap();
+    touch(tmp.path(), "src/Samples [SP-404]/snare.wav");
+    touch(tmp.path(), "kick.wav");
+    let out = tmp.path().join("out");
+    fs::create_dir_all(&out).unwrap();
+    let link = tmp.path().join("link");
+    std::os::unix::fs::symlink(&out, &link).unwrap();
+    let mut s = Settings::default();
+    s.save_mode = SaveMode::Fixed;
+    s.fixed_directory = Some(link);
+    let inputs = [tmp.path().join("src/Samples [SP-404]"), tmp.path().join("kick.wav")];
+    let result = build_plan(&inputs, Some(&out), &s);
+    assert!(matches!(result, Err(CoreError::OutputsOverlap { .. })), "{result:?}");
+}
+
+#[test]
+fn same_named_packs_still_get_numbered_outputs() {
+    let tmp = tempfile::tempdir().unwrap();
+    touch(tmp.path(), "a/Drums/k.wav");
+    touch(tmp.path(), "b/Drums/k.wav");
+    let out = tmp.path().join("out");
+    let plan = build_plan(&[tmp.path().join("a/Drums"), tmp.path().join("b/Drums")], Some(&out), &Settings::default()).unwrap();
+    assert_eq!(plan.packs[0].dest_root, out.join("Drums"));
+    assert_eq!(plan.packs[1].dest_root, out.join("Drums_2"));
+}
