@@ -451,17 +451,21 @@ button.link:hover:not(:disabled) {
 }
 
 /* Sign lockup: a black arrow square flush to the work area's edge, label beside it. */
+/* Sign lockup, centred in the work area where files are dropped: pictogram beside the label. */
 .lockup {
+  flex: 1;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 20px;
-  margin: 8vh 0 0 -22px;
 }
 .lockup > div {
   min-width: 0;
 }
-.lockup .pict-xl {
-  border-radius: 0 var(--radius) var(--radius) 0;
+/* The empty work area is the drop target: a quiet frame marks it. */
+#arrival {
+  border: 2px dashed var(--line);
+  border-radius: 6px;
 }
 .lockup-title {
   font-size: 24px;
@@ -517,11 +521,25 @@ button.link:hover:not(:disabled) {
   align-items: center;
   justify-content: center;
   gap: 18px;
-  background: var(--orange);
-  color: var(--ink);
-  border-radius: var(--radius);
-  font-size: 28px;
+  /* a translucent wash of the sign orange over the work area, not a solid slab */
+  background: rgba(255, 106, 19, 0.12);
+  border: 2px solid rgba(255, 106, 19, 0.7);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 22px;
   font-weight: 700;
+  animation: veil-in 160ms var(--ease-out);
+}
+#drop-veil .pict {
+  background: var(--orange);
+  color: var(--black);
+}
+@keyframes veil-in {
+  from {
+    opacity: 0;
+  }
 }
 body.dragging #drop-veil {
   display: flex;
@@ -896,9 +914,6 @@ select:disabled {
   #work {
     padding: 14px 16px;
     gap: 10px;
-  }
-  .lockup {
-    margin-left: -16px;
   }
   #results {
     gap: 10px;
