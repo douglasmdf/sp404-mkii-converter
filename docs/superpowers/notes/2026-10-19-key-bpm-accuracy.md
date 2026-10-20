@@ -231,3 +231,117 @@ Mesma base do `sp404 analyze`: cada medida de cada arquivo conta uma vez. As som
 ## Comandos
 
 `npm run build --prefix app` não foi preciso (`app/dist` já existia). `cargo test --workspace`: 193 testes passam, nenhum falha. Medição: mesmos comandos da passagem 1.
+
+# Passagem 3 (analisador v5) — segundo pack (Kount)
+
+## Conjunto
+
+**Kount's Natural Living Sample Pack**: 50 WAVs numa pasta só, num volume externo, fora do repositório. Arquivos `._*` e `Icon` são ignorados. Nenhum nome traz tom ou BPM.
+
+Gabarito em `docs/superpowers/notes/kount-labels.csv`:
+
+- `source=author`: conferência de ouvido do autor. BPM bruto (65,38 → 131 na faixa, 74 → 148, 76,33 → 153). Tons e tipos dos sons melódicos. `Pieces Sample`, `St Andrews Horns` e `Super Synth Loop` ficam sem tom (ambíguo ou desconhecido).
+- `source=agreement` (decisão do controlador): onde o BPM da v4 é igual ao tempo do projeto no Logic, esse BPM vale. Tipos pelo nome: *Drums/Break/Toms Loop/Topper/Percs* → loop de bateria; *Kick/Hat/Snare/Clap* → sem nota.
+- `author+agreement`: tipo e tom do autor, BPM por concordância (`Moog Pluck Loop`, `Mushroom Synth Loop`, `Rotiserie Sample`).
+- O tempo marcado no Logic ("Tempo: N") **não** é usado como gabarito nem como característica.
+
+Base da métrica de tom no Kount: 8 tons, todos de loops melódicos.
+
+## v4 sem ajuste (generalização honesta)
+
+O analisador v4, calibrado só no DAYDREAMS, rodando no Kount antes de qualquer mudança:
+
+| Medida | Meta | Kount, sem nomes | Kount, com nomes |
+|---|---|---|---|
+| Classificação | ≥ 90% | 46/50 (92,0%) ✅ | 46/50 ✅ |
+| BPM exato | ≥ 90% | 26/27 (96,3%) ✅ | 26/27 ✅ |
+| Tom exato | ≥ 65% | 6/8 (75,0%) ✅ | 6/8 ✅ |
+| Tom exato ou relativo | ≥ 80% | 8/8 (100%) ✅ | 8/8 ✅ |
+| Nota | ≥ 95% | 3/3 ✅ | 3/3 |
+| Acorde (real) | — | 1/1 | 1/1 |
+| Bateria sem prefixo | ≥ 98% | 34/35 (97,1%) ❌ | 34/35 ❌ |
+| Erros marcados como incertos | ≥ 60% | 2/7 (28,6%) ❌ | 2/7 ❌ |
+
+As duas execuções dão o mesmo resultado porque os nomes do Kount não têm tom, BPM nem palavras que mudem a decisão.
+
+Erros da v4 no Kount:
+
+| Arquivo | Erro |
+|---|---|
+| `Tombstone Clap` | Acorde Bb7: palma com reverb. É o único prefixo indevido em bateria. |
+| `Dearly Synth Loop` (9,2 s) | Frase, em vez de loop melódico. |
+| `Super Synth Loop` (13,5 s) | Frase, em vez de loop melódico. |
+| `Pieces Sample` | BPM 139, em vez de 81. |
+| `Mushroom Synth Loop` | Tom F, em vez de Dm (relativo; marcado como incerto). |
+| `St Andrews Horns` | Acorde, em vez de frase (marcado como incerto). |
+
+## O que mudou (v4 → v5) e de onde veio
+
+- **Periodicidade em compassos inteiros.** Antes só contava o tempo em que a duração dava uma potência de 2 de tempos. Agora conta qualquer tempo em que a duração dá um número inteiro de compassos (múltiplos de 4 tempos).
+  - Origem: `Dearly Synth Loop` tem 20 tempos a 130 BPM (contraste 0,45). Pela potência de 2, só 0,03.
+  - Limite: nos dois packs, o one-shot mais alto chega a 0,11 (`OP1_ReverseArp 1`).
+- **Potência de 2 a partir de 0,5 do melhor pulso** (antes 0,6).
+  - Origem: `Pieces Sample` (81 BPM, 0,52 do melhor).
+  - Limite: nos dois packs, o candidato errado mais alto fica em 0,02 (`Can't go Back`).
+- **Parciais sustentadas só contam como nota se algum quadro tem f0 clara** (rampa de 0 a 2% dos quadros com voz).
+  - Origem: `Tombstone Clap` tem 0 de 48 quadros com f0 clara; o reverb dava as parciais.
+  - Limite: o caso real mais baixo é `The Luv`, com 4,6%.
+- **Som de 8 s ou mais com ataques nunca é one-shot "certo".**
+  - Origem: `Super Synth Loop`, um pad em loop sem pulso visível. Continua errado (frase), mas agora marcado como incerto.
+- **Testes:**
+  - Novos: loop de 20 cliques é periódico; um som metálico inarmônico sustentado não tem nota.
+  - O teste do pad longo usa entradas irregulares. O pad antigo era re-tocado a cada 3,3 s, e isso é um pulso de verdade (4 tempos a 72 BPM).
+- `ANALYZER_VERSION = 5`.
+
+## Resultados v5 — por pack e combinados
+
+### Sem nomes (`--ignore-names`)
+
+| Medida | Meta | DAYDREAMS | Kount | **Combinado** |
+|---|---|---|---|---|
+| Classificação | ≥ 90% | 93/96 | 48/50 | **141/146 (96,6%)** ✅ |
+| BPM exato | ≥ 90% | 29/33 (87,9%) | 27/27 | **56/60 (93,3%)** ✅ |
+| Tom exato | ≥ 65% | 15/18 | 6/8 | **21/26 (80,8%)** ✅ |
+| Tom exato ou relativo | ≥ 80% | 16/18 | 8/8 | **24/26 (92,3%)** ✅ |
+| Nota (real) | ≥ 95% | 1/1 | 3/3 | **4/4** ✅ |
+| Acorde (real; meta nos sintéticos 13/13) | ≥ 70% | 3/3 | 1/1 | **4/4** ✅ |
+| Bateria sem prefixo | ≥ 98% | 72/72 | 35/35 | **107/107** ✅ |
+| Erros marcados como incertos | ≥ 60% | 6/10 | 3/4 | **9/14 (64,3%)** ✅ |
+
+### Com nomes
+
+| Medida | DAYDREAMS | Kount | **Combinado** |
+|---|---|---|---|
+| Classificação | 95/96 | 48/50 | **143/146 (97,9%)** |
+| BPM exato | 32/33 | 27/27 | **59/60 (98,3%)** |
+| Tom exato | 15/18 | 6/8 | **21/26 (80,8%)** |
+| Tom exato ou relativo | 16/18 | 8/8 | **24/26 (92,3%)** |
+| Nota / acorde (reais) | 1/1, 3/3 | 3/3, 1/1 | **4/4, 4/4** |
+| Bateria sem prefixo | 72/72 | 35/35 | **107/107** |
+| Erros marcados como incertos | 4/5 | 3/4 | **7/9 (77,8%)** |
+
+O DAYDREAMS não piorou em nenhuma medida (v4 → v5: mesmos números nas duas execuções). O preço foi mais acertos marcados como incertos, sem nomes:
+
+- Tipo: de 17/93 para 25/93 no DAYDREAMS (sirenes e sons longos) e 6/48 no Kount.
+- Tom: 7/15 no DAYDREAMS e 1/6 no Kount.
+
+Velocidade: 50 arquivos do Kount (volume externo) em 0,9 s com 8 workers.
+
+### Erros que sobram no Kount (v5, sem nomes)
+
+| Arquivo | Erro | Marcado? |
+|---|---|---|
+| `Dearly Synth Loop` | Tom G em vez de Em (relativo). Os dois perfis e o desempate dizem G. | não |
+| `Mushroom Synth Loop` | Tom F em vez de Dm (relativo). | sim |
+| `Super Synth Loop` | Frase em vez de loop melódico (pad sem pulso). | sim |
+| `St Andrews Horns` | Acorde em vez de frase. | sim |
+
+Os três erros de relativo nos dois packs (`Thinking Back`, `Dearly`, `Mushroom`) escolhem o maior no lugar do menor. Nos três, o grave, as pontas e os acordes também apontam para o maior. Não achei uma regra com princípio que corrija isso sem errar outros.
+
+## Metas: situação (v5)
+
+- **Combinado** (146 arquivos, 60 BPMs, 26 tons): todas as metas atingidas, com e sem nomes.
+- **Por pack:** só o BPM do DAYDREAMS sem nomes (87,9%) fica abaixo. São os mesmos 4 casos de antes: 2 de oitava, marcados como incertos, e 2 pandeiros de uma batida.
+- O comentário de `harmony.rs` sobre a confiança do tom agora usa a mesma base de contagem do `sp404 analyze` e destas notas.
+
+`cargo test --workspace`: 195 testes passam, nenhum falha.
