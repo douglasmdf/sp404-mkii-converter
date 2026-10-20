@@ -16,6 +16,11 @@ Funciona no macOS e no Windows.
 - Opcional (desligado por padrão): detecta tom, nota, acorde e BPM e coloca no começo do nome (`Am_90_Loop`, `C_808`, `Cm7_Stab`, `90_Break`). Tudo offline; resultados incertos ficam marcados no Dry Run e no resumo.
 - Dry Run, Desfazer a última conversão, pular arquivos já convertidos, log JSON opcional.
 
+Ao rodar de novo:
+
+- Ligar a detecção de tom/BPM (ou uma versão futura do analisador) muda os nomes de saída, então "pular existentes" não pula os arquivos convertidos antes com os nomes antigos.
+- Na pasta `Samples [SP-404]` reaproveitada, um arquivo solto cujo nome de saída já existe lá é pulado (aparece como "já existe, será pulado" no Dry Run); renomeie o original para convertê-lo.
+
 ## Usar
 
 1. Abra o app e arraste as pastas dos packs para a janela (ou ⌘/Ctrl+O).
@@ -53,7 +58,11 @@ cargo run -p sp404-cli -- convert --detect-key-bpm --bpm-range 78-166 \
   --out "$HOME/Desktop/SP404" "$HOME/Samples/Meu Pack" "$HOME/Samples/loop.wav"
 ```
 
-`--bpm-range` aceita 58-115, 68-135, 78-166 (padrão), 88-175 ou 98-195.
+`convert` segue as configurações salvas pelo app (detecção de tom/BPM, faixa de BPM, modo de destino), a não ser que estas opções sejam passadas:
+
+- `--detect-key-bpm` liga a detecção e `--no-detect-key-bpm` desliga, qualquer que seja a configuração salva.
+- `--bpm-range` aceita 58-115, 68-135, 78-166, 88-175 ou 98-195. Sem ela, vale a faixa salva (78-166 quando não há nada salvo).
+- `--out` escolhe a pasta de saída; é obrigatório quando há arquivos soltos.
 
 Detectar tipo, tom e BPM sem converter, e medir a precisão contra um gabarito:
 
