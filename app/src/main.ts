@@ -19,6 +19,7 @@ const routeDest = byId<HTMLElement>("route-dest");
 const routeKeyBpm = byId<HTMLElement>("route-keybpm");
 const busySign = byId<HTMLElement>("busy-sign");
 const busyLabel = byId<HTMLElement>("busy-label");
+const busySub = byId<HTMLElement>("busy-sub");
 const results = byId<HTMLElement>("results");
 const resultsTitle = byId<HTMLElement>("results-title");
 const resultsCounts = byId<HTMLElement>("results-counts");
@@ -341,6 +342,7 @@ async function buildPlan(): Promise<Plan | undefined> {
   setBusy(true);
   clearMessage();
   busyLabel.textContent = t("analyzing", { done: 0, total: audioFileCount() });
+  busySub.textContent = t("busyAnalyzeSub");
   setStage("analyzing");
   setProgress(0, audioFileCount(), t("gateAnalyzing"));
   try {
@@ -398,6 +400,7 @@ async function convertAll() {
   const converting = plan;
   setBusy(true);
   busyLabel.textContent = t("progress", { done: 0, total: 0 });
+  busySub.textContent = t("busyConvertSub");
   setStage("converting");
   setProgress(0, 0, t("gateConverting"));
   try {
@@ -556,6 +559,16 @@ const STATE_ICONS: Record<RowState, IconName> = {
   error: "error",
 };
 
+/** Long paths break only after a "/" (a <wbr>), never in the middle of a word. */
+function sourceCell(path: string): HTMLTableCellElement {
+  const cell = el("td", undefined, "source");
+  path.split("/").forEach((part, index, parts) => {
+    cell.append(document.createTextNode(index < parts.length - 1 ? `${part}/` : part));
+    if (index < parts.length - 1) cell.append(document.createElement("wbr"));
+  });
+  return cell;
+}
+
 function folderOf(path: string): string {
   return path.slice(0, path.length - fileName(path).length);
 }
@@ -573,6 +586,8 @@ function targetCell(row: Row): HTMLTableCellElement {
     label.append(document.createTextNode(name));
   }
   cell.append(label);
+  // Narrow windows fold the note column into a second line under the name.
+  if (row.notes.length > 0) cell.append(el("span", row.notes.join(" · "), "note-inline"));
   return cell;
 }
 
@@ -582,24 +597,30 @@ function renderResults() {
   const flat = all.flatMap((group) => group.rows);
   const isPlan = view.kind === "plan";
   resultsTitle.textContent = isPlan ? t("dryRunTitle") : t("summaryTitle");
-  if (view.kind === "summary") {
-    const s = view.summary;
-    resultsCounts.textContent = t("summaryCounts", {
-      converted: s.converted,
-      copied: s.copied,
-      skipped: s.skipped,
-      failed: s.failed,
-      cancelled: s.cancelled,
-      warnings: s.withWarnings,
-    });
-  } else {
-    resultsCounts.textContent = t("planCounts", {
-      write: plannedWrites(view.plan),
-      skipped: flat.filter((row) => row.state === "skip").length,
-      check: flat.filter(TAB_FILTERS.check).length,
-      unsupported: flat.filter((row) => row.state === "error").length,
-    });
-  }
+  const counters: [number, I18nKey, string?][] =
+    view.kind === "summary"
+      ? [
+          [view.summary.converted, "cntConverted"],
+          [view.summary.copied, "cntCopied"],
+          [view.summary.skipped, "cntSkipped"],
+          [flat.filter(TAB_FILTERS.check).length, "cntCheck", "check"],
+          [view.summary.withWarnings, "cntWarnings", "warn"],
+          [view.summary.failed, "cntFailed", "error"],
+          ...(view.summary.cancelled > 0 ? [[view.summary.cancelled, "cntCancelled"] as [number, I18nKey]] : []),
+        ]
+      : [
+          [plannedWrites(view.plan), "cntWrite"],
+          [flat.filter((row) => row.state === "skip").length, "cntExists"],
+          [flat.filter(TAB_FILTERS.check).length, "cntCheck", "check"],
+          [flat.filter((row) => row.state === "error").length, "cntUnsupported", "error"],
+        ];
+  resultsCounts.replaceChildren(
+    ...counters.map(([count, label, tone]) => {
+      const item = el("div", undefined, `counter${tone && count > 0 ? ` tone-${tone}` : ""}`);
+      item.append(el("b", String(count)), el("span", t(label)));
+      return item;
+    }),
+  );
 
   tabs.replaceChildren(
     ...(Object.keys(TAB_FILTERS) as Tab[]).map((tab) => {
@@ -626,14 +647,18 @@ function renderResults() {
     const cell = el("th");
     cell.colSpan = 4;
     cell.scope = "colgroup";
-    cell.append(el("strong", group.pack.name), pict("arrowRight", "arrow"), el("span", group.pack.destRoot));
+    const lockup = el("div", undefined, "group-lockup");
+    const text = el("div");
+    text.append(el("strong", group.pack.name), el("span", group.pack.destRoot, "path"));
+    lockup.append(pict("arrowRight", "pict pict-sm"), text);
+    cell.append(lockup);
     head.append(cell);
     rows.push(head);
     for (const row of visible) {
       const tr = el("tr", undefined, `state-${row.state}`);
       const stateCell = el("td", undefined, "col-state");
       stateCell.append(icon(STATE_ICONS[row.state]));
-      tr.append(stateCell, el("td", row.source, "source"), targetCell(row), el("td", row.notes.join(" · "), "note"));
+      tr.append(stateCell, sourceCell(row.source), targetCell(row), el("td", row.notes.join(" · "), "note"));
       rows.push(tr);
     }
   }

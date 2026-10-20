@@ -35,10 +35,12 @@
     <main id="work">
       <section id="message" hidden></section>
 
-      <section id="arrival">
-        <span class="pict pict-xl"><span data-icon="arrowDown"></span></span>
-        <p data-i18n="dropHint"></p>
-        <p class="arrival-sub" data-i18n="tagline"></p>
+      <section id="arrival" class="lockup">
+        <span class="pict pict-xl"><span data-icon="arrowLeft"></span></span>
+        <div>
+          <p class="lockup-title" data-i18n="dropHint"></p>
+          <p class="lockup-sub" data-i18n="tagline"></p>
+        </div>
       </section>
 
       <section id="route" hidden>
@@ -57,15 +59,18 @@
         </div>
       </section>
 
-      <section id="busy-sign" hidden>
+      <section id="busy-sign" class="lockup" hidden>
         <span class="pict pict-xl spin"><span data-icon="convert"></span></span>
-        <p id="busy-label"></p>
+        <div>
+          <p id="busy-label" class="lockup-title"></p>
+          <p id="busy-sub" class="lockup-sub"></p>
+        </div>
       </section>
 
       <section id="results" hidden>
         <div id="results-head">
           <h2 id="results-title"></h2>
-          <p id="results-counts"></p>
+          <div id="results-counts" class="counters"></div>
         </div>
         <div id="tabs" role="tablist"></div>
         <div id="table-wrap">

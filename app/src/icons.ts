@@ -1,5 +1,6 @@
 import {
   ArrowDown,
+  ArrowLeft,
   ArrowRight,
   Ban,
   CardSim,
@@ -24,6 +25,7 @@ const ICONS = {
   add: FolderPlus,
   addFile: FilePlus,
   arrowDown: ArrowDown,
+  arrowLeft: ArrowLeft,
   arrowRight: ArrowRight,
   card: CardSim,
   check: Check,

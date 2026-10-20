@@ -183,6 +183,12 @@ button.primary .pict .icon {
 .pict-btn:hover:not(:disabled) {
   background: #262626;
 }
+.pict-btn:disabled {
+  opacity: 1;
+}
+.pict-btn:disabled .icon {
+  opacity: 0.35;
+}
 .pict-btn .icon {
   width: 24px;
   height: 24px;
@@ -227,32 +233,49 @@ button.link:hover:not(:disabled) {
   align-items: stretch;
   background: var(--orange);
   color: var(--ink);
+  box-shadow: inset 0 -3px 0 var(--black);
 }
 
 #steps {
   list-style: none;
   display: flex;
   min-width: 0;
+  overflow: hidden;
 }
 #steps li {
+  flex: 1 1 0;
+  min-width: max-content;
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 0 20px;
   font-size: 20px;
-  font-weight: 700;
-  color: var(--ink-muted);
+  font-weight: 400;
+  color: var(--ink);
   white-space: nowrap;
   border-right: 1px solid rgba(17, 17, 17, 0.18);
   transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out);
 }
 #steps li .pict {
-  background: var(--ink-muted);
-  color: var(--orange);
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--ink);
+  color: var(--ink);
   transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out);
 }
-#steps li.done {
-  color: var(--ink);
+#steps li .pict .icon {
+  opacity: 0.6;
+}
+#steps li.done,
+#steps li.current {
+  font-weight: 700;
+}
+#steps li.done .pict,
+#steps li.current .pict {
+  box-shadow: none;
+}
+#steps li.done .pict .icon,
+#steps li.current .pict .icon {
+  opacity: 1;
 }
 #steps li.done .pict {
   background: var(--black);
@@ -317,12 +340,12 @@ button.link:hover:not(:disabled) {
   right: 0;
   bottom: 0;
   height: 5px;
-  background: rgba(17, 17, 17, 0.22);
+  background: var(--black);
 }
 #progress-fill {
   height: 100%;
   width: 0;
-  background: var(--black);
+  background: #fff;
   transition: width 200ms var(--ease-out);
 }
 
@@ -427,32 +450,31 @@ button.link:hover:not(:disabled) {
   color: var(--black);
 }
 
-#arrival,
-#busy-sign {
-  flex: 1;
+/* Sign lockup: a black arrow square flush to the work area's edge, label beside it. */
+.lockup {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 18px;
-  text-align: center;
+  gap: 24px;
+  margin: 8vh 0 0 -28px;
 }
-#arrival p {
-  font-size: 26px;
+.lockup > div {
+  min-width: 0;
+}
+.lockup .pict-xl {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.lockup-title {
+  font-size: 30px;
   font-weight: 700;
-  max-width: 22ch;
-  line-height: 1.2;
+  line-height: 1.15;
+  max-width: 20ch;
   text-wrap: balance;
-}
-#arrival .arrival-sub {
-  font-size: 15px;
-  font-weight: 400;
-  color: var(--text-2);
-}
-#busy-sign p {
-  font-size: 22px;
-  font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+.lockup-sub {
+  margin-top: 8px;
+  font-size: 15px;
+  color: var(--text-2);
 }
 .spin .icon {
   animation: spin 1.4s linear infinite;
@@ -518,11 +540,36 @@ body.dragging #drop-veil {
   font-size: 20px;
   font-weight: 700;
 }
-#results-counts {
-  margin-top: 4px;
-  font-size: 14px;
-  color: var(--text-2);
+.counters {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.counter {
+  display: grid;
+  gap: 2px;
+  padding: 0 22px;
+  border-left: 1px solid var(--line);
+}
+.counter:first-child {
+  padding-left: 0;
+  border-left: none;
+}
+.counter b {
+  font-size: 36px;
+  line-height: 1;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+.counter span {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.counter.tone-warn b {
+  color: var(--warn);
+}
+.counter.tone-error b {
+  color: var(--error);
 }
 
 #tabs {
@@ -530,7 +577,7 @@ body.dragging #drop-veil {
   gap: 4px;
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
-  scrollbar-width: none;
+  scrollbar-width: thin;
 }
 .tab {
   flex: none;
@@ -604,7 +651,6 @@ body.dragging #drop-veil {
 }
 #result-table .source {
   color: var(--text-2);
-  overflow-wrap: anywhere;
 }
 #result-table .target {
   font: 12.5px/1.45 var(--mono);
@@ -635,48 +681,62 @@ body.dragging #drop-veil {
 tr.group th {
   text-align: left;
   font-weight: 400;
-  padding: 14px 10px 8px;
+  padding: 14px 10px 10px 0;
   border-bottom: 1px solid var(--line);
-  display: table-cell;
 }
-tr.group th strong {
+.group-lockup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.group-lockup > div {
+  min-width: 0;
+}
+.pict-sm {
+  width: 30px;
+  height: 30px;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.pict-sm .icon {
+  width: 18px;
+  height: 18px;
+}
+.group-lockup strong {
+  display: block;
   font-size: 14px;
 }
-tr.group .arrow {
-  width: auto;
-  height: auto;
-  background: none;
-  color: var(--text-3);
-  margin: 0 8px;
-  vertical-align: -3px;
-}
-tr.group .arrow .icon {
-  width: 16px;
-  height: 16px;
-}
-tr.group th span:last-child {
+.group-lockup .path {
+  display: block;
   font: 12px var(--mono);
   color: var(--text-3);
   overflow-wrap: anywhere;
 }
-tr.state-ok .col-state,
-tr.state-copy .col-state {
-  color: var(--text-3);
-}
-tr.state-check .col-state,
-tr.state-check .note {
+#result-table tr.state-check .col-state,
+#result-table tr.state-check .note,
+#result-table tr.state-check .note-inline {
   color: var(--text);
 }
-tr.state-skip td {
+#result-table tr.state-check .target {
+  background: rgba(255, 255, 255, 0.04);
+}
+#result-table tr.state-skip td {
   color: var(--text-3);
 }
-tr.state-warn .col-state,
-tr.state-warn .note {
+#result-table tr.state-warn .col-state,
+#result-table tr.state-warn .note,
+#result-table tr.state-warn .note-inline {
   color: var(--warn);
 }
-tr.state-error .col-state,
-tr.state-error .note {
+#result-table tr.state-error .col-state,
+#result-table tr.state-error .note,
+#result-table tr.state-error .note-inline {
   color: var(--error);
+}
+#result-table .note-inline {
+  display: none;
+  font: 12px var(--sans);
+  color: var(--text-2);
+  margin-top: 2px;
 }
 #table-empty {
   padding: 24px 10px;
@@ -823,6 +883,47 @@ select:disabled {
 @media (max-width: 900px) {
   :root {
     --rail-w: 220px;
+    --band-h: 88px;
+    --foot-h: 60px;
+  }
+  #work {
+    padding: 16px 20px;
+    gap: 12px;
+  }
+  .lockup {
+    margin-left: -20px;
+  }
+  #results {
+    gap: 10px;
+  }
+  #results-head h2 {
+    font-size: 17px;
+  }
+  .counters {
+    margin-top: 6px;
+  }
+  .counter {
+    padding: 0 14px;
+  }
+  .counter b {
+    font-size: 24px;
+  }
+  .counter span {
+    font-size: 11px;
+  }
+  .tab {
+    height: 34px;
+    padding: 0 8px;
+  }
+  #result-table th:last-child,
+  #result-table td.note {
+    display: none;
+  }
+  #result-table .note-inline {
+    display: block;
+  }
+  #result-table td {
+    padding: 6px 8px;
   }
   #steps li {
     padding: 0 12px;
@@ -838,7 +939,7 @@ select:disabled {
     padding: 0 16px;
   }
   #gate-number {
-    font-size: 44px;
+    font-size: 40px;
   }
 }
 
@@ -850,4 +951,15 @@ select:disabled {
   * {
     transition: none !important;
   }
+}
+
+/* A disabled primary drops to graphite instead of a dimmed (brown) orange. */
+button.primary:disabled {
+  opacity: 1;
+  background: var(--raised);
+  border-color: #3d4045;
+  color: var(--text-3);
+}
+button.primary:disabled .pict .icon {
+  opacity: 0.4;
 }
