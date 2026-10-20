@@ -27,7 +27,7 @@ pub const ANALYSIS_RATE: u32 = 22_050;
 /// Only the start of a file is decoded and analysed.
 pub const MAX_ANALYSIS_SECONDS: f64 = 180.0;
 /// Bumped whenever thresholds or profiles change, so logs show which analyzer named a file.
-pub const ANALYZER_VERSION: u32 = 6;
+pub const ANALYZER_VERSION: u32 = 7;
 
 /// A detected value and whether the analyzer trusts it enough to name the file with it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -136,7 +136,7 @@ pub fn analyze_file(path: &Path, hints: &NameHints) -> Result<Detection> {
 
 pub(crate) fn analyze_signal(signal: &signal::Signal, hints: &NameHints) -> Detection {
     let features = features::extract(signal);
-    let rhythm = tempo::Rhythm::new(&features, signal.file_seconds);
+    let rhythm = tempo::Rhythm::new(&features, signal.loop_seconds());
     let kind = classify::classify_with(signal, &features, hints, rhythm.periodicity());
     let mut detection = Detection { kind: kind.clone(), note: None, chord: None, key: None, bpm: None };
     match kind.value {

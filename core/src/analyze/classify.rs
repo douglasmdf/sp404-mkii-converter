@@ -221,7 +221,8 @@ const PITCHED_WORDS: &[&str] = &["808", "bass", "keys", "piano", "synth", "pad",
 const ALWAYS_PITCHED_WORDS: &[&str] = &["808", "bass"];
 
 pub fn classify(signal: &Signal, features: &Features, hints: &NameHints) -> Estimate<SampleKind> {
-    classify_with(signal, features, hints, periodicity(features, signal.file_seconds))
+    let periodicity = signal.loop_seconds().map_or(0.0, |seconds| periodicity(features, seconds));
+    classify_with(signal, features, hints, periodicity)
 }
 
 /// `classify` with the onset periodicity already computed (it is shared with the tempo).
@@ -236,7 +237,7 @@ pub(crate) fn classify_with(signal: &Signal, features: &Features, hints: &NameHi
         sign(i32::from(has(PITCHED_WORDS) || has(CHORD_WORDS) || hints.has_key_token) - i32::from(has(DRUM_WORDS)))
     };
     let loop_bounds = (LOOP_WEAK, LOOP_MIDPOINT, LOOP_STRONG);
-    let (is_loop, loop_sure) = if cut_to_name_tempo(signal.file_seconds, hints) {
+    let (is_loop, loop_sure) = if signal.loop_seconds().is_some_and(|seconds| cut_to_name_tempo(seconds, hints)) {
         // A loop by its length, but only sure when the sound itself leans to loop too.
         (true, decide(loop_score(&sound), loop_bounds, 0).0)
     } else {
@@ -359,7 +360,7 @@ mod tests {
             })
             .collect();
         let seconds = n as f64 / rate as f64;
-        Signal { samples, rate: rate as u32, source_seconds: seconds, file_seconds: seconds }
+        Signal { samples, rate: rate as u32, source_seconds: seconds, file_seconds: seconds, truncated: false }
     }
 
     #[test]
@@ -398,6 +399,9 @@ mod tests {
         assert!(!named.confident, "the onsets do not support a loop: {named:?}");
         assert_eq!(kind(&hit, &hints(&["One Shots"], "Tambo (97bpm)")), SampleKind::Unpitched);
         assert_eq!(kind(&hit, &hints(&["One Shots"], "Tambo")), SampleKind::Unpitched);
+        // Cut at the analysis limit, the decoded length is not the file's: no length evidence.
+        hit.truncated = true;
+        assert_eq!(kind(&hit, &hints(&["One Shots"], "Tambo (85bpm)")), SampleKind::Unpitched);
     }
 
     /// A siren: a clear pitch that sweeps up and down two octaves without settling on notes.
@@ -413,7 +417,7 @@ mod tests {
                 0.4 * (phase.sin() + 0.3 * (2.0 * phase).sin())
             })
             .collect();
-        Signal { samples, rate: rate as u32, source_seconds: 4.0, file_seconds: 4.0 }
+        Signal { samples, rate: rate as u32, source_seconds: 4.0, file_seconds: 4.0, truncated: false }
     }
 
     #[test]
@@ -452,7 +456,7 @@ mod tests {
                 0.04 * sum * (-t / 1.5).exp()
             })
             .collect();
-        Signal { samples, rate: rate as u32, source_seconds: 2.0, file_seconds: 2.0 }
+        Signal { samples, rate: rate as u32, source_seconds: 2.0, file_seconds: 2.0, truncated: false }
     }
 
     #[test]

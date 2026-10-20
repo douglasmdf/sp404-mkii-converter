@@ -47,12 +47,12 @@ const MIN_ONSETS: usize = 2;
 
 /// Raw BPM (not folded into a range) of a loop of `seconds` (its untrimmed length).
 pub fn estimate_bpm(features: &Features, seconds: f64) -> Option<Estimate<f32>> {
-    Rhythm::new(features, seconds).bpm()
+    Rhythm::new(features, Some(seconds)).bpm()
 }
 
 /// How clearly the onsets repeat at the tempo the loop length implies; see [`Rhythm::periodicity`].
 pub fn periodicity(features: &Features, seconds: f64) -> f32 {
-    Rhythm::new(features, seconds).periodicity()
+    Rhythm::new(features, Some(seconds)).periodicity()
 }
 
 /// The onset autocorrelation of one signal, built once (it is O(n²)) and read for both the
@@ -61,13 +61,15 @@ pub struct Rhythm {
     acf: Option<Acf>,
     hop: f64,
     onsets: usize,
-    seconds: f64,
+    /// The file's length; `None` when it is unknown (the file was cut at the analysis
+    /// limit), which leaves out every candidate taken from the length.
+    seconds: Option<f64>,
     /// Family score at each grid tempo of the octave.
     grid: Vec<(f64, f64)>,
 }
 
 impl Rhythm {
-    pub fn new(features: &Features, seconds: f64) -> Rhythm {
+    pub fn new(features: &Features, seconds: Option<f64>) -> Rhythm {
         let hop = features.hop_seconds as f64;
         let acf = Acf::new(&features.onset_env);
         let steps = (OCTAVE_LOW / GRID_STEP_BPM) as usize;
@@ -94,7 +96,7 @@ impl Rhythm {
 
     /// The tempo of `beats` beats over the loop length, folded into the octave.
     fn tempo_of(&self, beats: f64) -> Option<f64> {
-        (self.seconds > 0.0).then(|| fold_octave(60.0 * beats / self.seconds))
+        self.seconds.filter(|s| *s > 0.0).map(|s| fold_octave(60.0 * beats / s))
     }
 
     /// How much better the onsets fit a tempo at which the length is a whole number of bars
@@ -104,11 +106,11 @@ impl Rhythm {
     /// rather than only powers of two: `Dearly Synth Loop` (Kount pack) is 20 beats at 130 BPM.
     /// The best one-shot of both test packs reaches 0.11 (`OP1_ReverseArp 1`).
     pub fn periodicity(&self) -> f32 {
-        let Some(pow2) = self.tempo_of(4.0) else { return 0.0 };
-        let last = (2.0 * OCTAVE_LOW * self.seconds / 60.0).floor() as u64;
+        let (Some(pow2), Some(seconds)) = (self.tempo_of(4.0), self.seconds) else { return 0.0 };
+        let last = (2.0 * OCTAVE_LOW * seconds / 60.0).floor() as u64;
         let bars = (4..=last)
             .step_by(4)
-            .map(|beats| 60.0 * beats as f64 / self.seconds)
+            .map(|beats| 60.0 * beats as f64 / seconds)
             .filter(|bpm| (OCTAVE_LOW..2.0 * OCTAVE_LOW).contains(bpm))
             .map(|bpm| self.family(bpm))
             .fold(self.family(pow2), f64::max);
@@ -128,9 +130,10 @@ impl Rhythm {
             }
         }
         let mut chosen: Option<(f64, f64)> = None;
-        let last = (2.0 * OCTAVE_LOW * self.seconds / 60.0).floor() as u64;
+        let seconds = self.seconds.unwrap_or(0.0);
+        let last = (2.0 * OCTAVE_LOW * seconds / 60.0).floor() as u64;
         for beats in 1..=last {
-            let bpm = 60.0 * beats as f64 / self.seconds;
+            let bpm = 60.0 * beats as f64 / seconds;
             if !(OCTAVE_LOW..2.0 * OCTAVE_LOW).contains(&bpm) || (bpm - best_bpm).abs() > MAX_DRIFT * best_bpm {
                 continue;
             }
@@ -238,6 +241,17 @@ mod tests {
         let signal = with_tail(&click_loop(95.0, 18), 0.37);
         let found = estimate_bpm(&extract(&signal), signal.file_seconds).expect("a BPM");
         assert_eq!(fold_bpm(found.value, BpmRange::R78_166), 95, "{}", found.value);
+    }
+
+    #[test]
+    fn unknown_length_gives_no_length_tempo() {
+        // A file cut at the analysis limit: its decoded length says nothing about its beats.
+        let signal = click_loop(90.0, 16);
+        let rhythm = Rhythm::new(&extract(&signal), None);
+        assert_eq!(rhythm.periodicity(), 0.0);
+        let found = rhythm.bpm().expect("the onsets still give a tempo");
+        assert!(!found.confident, "{found:?}");
+        assert_eq!(fold_bpm(found.value, BpmRange::R58_115), 90, "{}", found.value);
     }
 
     #[test]

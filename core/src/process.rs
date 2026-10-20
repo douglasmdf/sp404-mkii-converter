@@ -23,7 +23,7 @@ pub struct Processed {
 }
 
 pub fn process(decoded: DecodedAudio, downmix_multichannel: bool) -> Result<Processed> {
-    let DecodedAudio { buffer, exact_16bit } = decoded;
+    let DecodedAudio { buffer, exact_16bit, .. } = decoded;
     let AudioBuffer { mut channels, sample_rate } = buffer;
 
     let mut downmixed_from = None;
@@ -327,7 +327,7 @@ mod tests {
     }
 
     fn decoded(channels: Vec<Vec<f32>>, sample_rate: u32, exact_16bit: bool) -> DecodedAudio {
-        DecodedAudio { buffer: AudioBuffer { channels, sample_rate }, exact_16bit }
+        DecodedAudio { buffer: AudioBuffer { channels, sample_rate }, exact_16bit, truncated: false }
     }
 
     #[test]

@@ -32,6 +32,8 @@ pub struct DecodedAudio {
     /// True when the source is integer PCM of 16 bits or less, so converting back to
     /// 16 bits without resampling loses nothing and needs no dither.
     pub exact_16bit: bool,
+    /// True when decoding stopped at `max_seconds` with more audio left in the file.
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -54,6 +56,7 @@ pub fn decode_file_limited(path: &Path, max_seconds: Option<f64>) -> Result<Deco
         .map_err(map_err)?;
     let mut sample_rate = params.sample_rate.unwrap_or(0);
     let mut channels: Vec<Vec<f32>> = vec![Vec::new(); params.channels.map_or(0, |c| c.count())];
+    let mut truncated = false;
 
     loop {
         let packet = match format.next_packet() {
@@ -86,6 +89,7 @@ pub fn decode_file_limited(path: &Path, max_seconds: Option<f64>) -> Result<Deco
         }
         if let Some(max) = max_seconds {
             if channels.first().map_or(0, Vec::len) as f64 >= max * sample_rate as f64 {
+                truncated = has_more_packets(format.as_mut(), track_id);
                 break;
             }
         }
@@ -96,7 +100,18 @@ pub fn decode_file_limited(path: &Path, max_seconds: Option<f64>) -> Result<Deco
     }
     let exact_16bit = matches!(params.bits_per_sample, Some(bits) if bits <= 16)
         && !matches!(params.sample_format, Some(SampleFormat::F32 | SampleFormat::F64));
-    Ok(DecodedAudio { buffer: AudioBuffer { channels, sample_rate }, exact_16bit })
+    Ok(DecodedAudio { buffer: AudioBuffer { channels, sample_rate }, exact_16bit, truncated })
+}
+
+/// Whether the track has another packet (read and dropped).
+fn has_more_packets(format: &mut dyn FormatReader, track_id: u32) -> bool {
+    loop {
+        match format.next_packet() {
+            Ok(packet) if packet.track_id() == track_id => return true,
+            Ok(_) => continue,
+            Err(_) => return false,
+        }
+    }
 }
 
 pub fn probe_info(path: &Path) -> Result<AudioInfo> {
