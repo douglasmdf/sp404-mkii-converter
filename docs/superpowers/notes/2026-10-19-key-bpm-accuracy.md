@@ -1,6 +1,28 @@
 # Precisão de tom/BPM — calibração (2026-10-19)
 
-Duas passagens: a primeira (analisador v2) sobre o gabarito da referência; a segunda (analisador v3, no fim deste arquivo) sobre o gabarito conferido de ouvido pelo autor.
+## Estado final (analisador v7)
+
+- **Packs:** DAYDREAMS SAMPLE PACK (96 arquivos) e Kount's Natural Living Sample Pack (50 arquivos), ambos fora do repositório. Gabaritos em `daydreams-labels.csv` e `kount-labels.csv`.
+- **Números finais**, DAYDREAMS + Kount só com respostas conferidas pelo autor (tabela "honesta" da v6, abaixo), sem nomes / com nomes:
+  - classificação 119/124 (96,0%) / 121/124 (97,6%);
+  - BPM exato 44/48 (91,7%) / 47/48 (97,9%);
+  - tom exato 21/26 (80,8%); tom exato ou relativo 24/26 (92,3%);
+  - nota 4/4; acorde 4/4; bateria sem prefixo de tom 85/85;
+  - erros marcados como incertos 9/14 (64,3%) / 7/9 (77,8%).
+- **Ponto fraco conhecido:** BPM só pelo som no DAYDREAMS isolado fica em 29/33 (87,9%).
+- **Aceite:** o autor aprovou a liberação em 2026-10-19 com base nesses números combinados.
+- **v6 → v7:** a v7 só muda arquivos com mais de 180 s (`MAX_ANALYSIS_SECONDS`). Deles só o começo é decodificado, então a duração decodificada não diz nada sobre os tempos: o candidato de tempo pela duração do loop e a checagem "duração bate com o BPM do nome" deixam de valer para eles. Nenhum arquivo dos dois packs passa de 180 s (o mais longo é `Truth Sample`, 123 s; no DAYDREAMS, `Double Vision (84bpm)`, 91 s). As quatro execuções (dois packs, com e sem nomes) foram refeitas com a v7 (build release) e deram exatamente os números da v6.
+- Também nesta rodada (sem mudar números: nenhum nome dos packs tem essas palavras): `Am` e `Ab` escritos exatamente assim são palavras em inglês e contam como tom solto, que só vale se o som concordar.
+
+## Passagens
+
+O arquivo registra, em ordem:
+
+- passagem 1 (analisador v2), sobre o gabarito da referência;
+- passagem 2 (v3), sobre o gabarito conferido de ouvido pelo autor;
+- rodada de correções (v4);
+- passagem 3 (v5), com o segundo pack (Kount);
+- rodada de correções da passagem 3 (v6), que tem a tabela final.
 
 # Passagem 1 (analisador v2)
 
