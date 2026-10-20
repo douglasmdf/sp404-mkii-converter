@@ -3210,7 +3210,7 @@ dependencies = [
 
 [[package]]
 name = "sp404-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "hound",
@@ -3221,7 +3221,7 @@ dependencies = [
 
 [[package]]
 name = "sp404-converter"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "sp404-core",
@@ -3232,7 +3232,7 @@ dependencies = [
 
 [[package]]
 name = "sp404-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "deunicode",
  "dirs 6.0.0",
