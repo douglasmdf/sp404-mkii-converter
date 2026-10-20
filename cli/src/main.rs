@@ -26,7 +26,7 @@ enum Command {
         /// Pack folders and/or audio files
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
-        /// Output folder (otherwise the saved settings decide)
+        /// Output folder (otherwise the saved settings decide; required with loose files)
         #[arg(long)]
         out: Option<PathBuf>,
         /// Show what would happen without writing anything
@@ -35,10 +35,15 @@ enum Command {
         /// Write conversion_results.json into each output pack
         #[arg(long)]
         json_log: bool,
-        /// Add the detected key/note/chord and BPM to the output names
-        #[arg(long)]
+        /// Add the detected key/note/chord and BPM to the output names (otherwise the saved
+        /// settings decide)
+        #[arg(long, conflicts_with = "no_detect_key_bpm")]
         detect_key_bpm: bool,
+        /// Do not add key/BPM to the names, even if the saved settings turn it on
+        #[arg(long)]
+        no_detect_key_bpm: bool,
         /// BPM range detected tempos are folded into: 58-115, 68-135, 78-166, 88-175 or 98-195
+        /// (default: the saved range, 78-166 when nothing is saved)
         #[arg(long, value_parser = parse_range)]
         bpm_range: Option<BpmRange>,
     },
@@ -71,8 +76,15 @@ enum Command {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let outcome = match cli.command {
-        Command::Convert { inputs, out, dry_run, json_log, detect_key_bpm, bpm_range } => {
-            convert(&inputs, out.as_deref(), dry_run, json_log, detect_key_bpm, bpm_range)
+        Command::Convert { inputs, out, dry_run, json_log, detect_key_bpm, no_detect_key_bpm, bpm_range } => {
+            let detect = if detect_key_bpm {
+                Some(true)
+            } else if no_detect_key_bpm {
+                Some(false)
+            } else {
+                None
+            };
+            convert(&inputs, out.as_deref(), dry_run, json_log, detect, bpm_range)
         }
         Command::Analyze { inputs, bpm_range, ignore_names, labels, report } => {
             analyze::run(&analyze::Options { inputs, range: bpm_range, ignore_names, labels, report }).map(|()| ExitCode::SUCCESS)
@@ -97,9 +109,12 @@ fn convert(
     out: Option<&Path>,
     dry_run: bool,
     json_log: bool,
-    detect_key_bpm: bool,
+    detect_key_bpm: Option<bool>,
     bpm_range: Option<BpmRange>,
 ) -> Result<ExitCode, String> {
+    if out.is_none() && inputs.iter().any(|p| p.is_file() && scan::classify(p) != JobKind::Copy) {
+        return Err(String::from("loose audio files need an output folder: pass --out <folder>"));
+    }
     let mut settings = Settings::load();
     if out.is_some() {
         settings.save_mode = SaveMode::Ask;
@@ -107,8 +122,8 @@ fn convert(
     if json_log {
         settings.write_json_log = true;
     }
-    if detect_key_bpm {
-        settings.detect_key_bpm = true;
+    if let Some(detect) = detect_key_bpm {
+        settings.detect_key_bpm = detect;
     }
     if let Some(range) = bpm_range {
         settings.bpm_range = range;
@@ -147,9 +162,15 @@ fn convert(
     Ok(if summary.failed > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
 }
 
+/// Same count as the app: files with any uncertain value (type, key/note/chord, BPM) or
+/// that could not be analysed.
 fn uncertain_summary(plan: &Plan) -> String {
-    let n = plan.jobs().filter_map(|j| j.analysis.as_ref()).filter(|a| a.error.is_none() && (a.label_uncertain || a.bpm_uncertain)).count();
-    format!("{n} with uncertain key/BPM")
+    let n = plan
+        .jobs()
+        .filter_map(|j| j.analysis.as_ref())
+        .filter(|a| a.error.is_some() || a.kind_uncertain || a.label_uncertain || a.bpm_uncertain)
+        .count();
+    format!("{n} files to check by ear (uncertain or not analyzed)")
 }
 
 fn analysis_note(job: &scan::Job) -> String {

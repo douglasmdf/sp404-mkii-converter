@@ -87,7 +87,8 @@ fn loose_file_without_output_folder_fails_clearly() {
     write_wav(&file);
     let output = sp404(&data).arg("convert").arg(&file).output().unwrap();
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("no output folder"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("loose audio files need an output folder: pass --out <folder>"), "{stderr}");
 }
 
 fn write_sine(path: &Path, hz: f32) {
@@ -154,4 +155,49 @@ fn convert_rejects_an_unknown_bpm_range() {
     let (_tmp, pack, out, data) = sine_pack();
     let output = sp404(&data).args(["convert", "--dry-run", "--bpm-range", "1-2", "--out"]).arg(&out).arg(&pack).output().unwrap();
     assert!(!output.status.success());
+}
+
+fn save_detection_on(data: &Path) {
+    let mut settings = sp404_core::config::Settings::default();
+    settings.detect_key_bpm = true;
+    settings.save_to(&data.join("settings.json")).unwrap();
+}
+
+#[test]
+fn convert_follows_saved_detection_unless_told_otherwise() {
+    let (_tmp, pack, out, data) = sine_pack();
+    save_detection_on(&data);
+    let dry_run = |extra: &[&str]| {
+        let output = sp404(&data).args(["convert", "--dry-run"]).args(extra).arg("--out").arg(&out).arg(&pack).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+    assert!(dry_run(&[]).contains("A_x.wav"));
+    let off = dry_run(&["--no-detect-key-bpm"]);
+    assert!(off.contains("x.wav") && !off.contains("A_x.wav"), "{off}");
+}
+
+#[test]
+fn detection_flags_conflict() {
+    let (_tmp, pack, out, data) = sine_pack();
+    let output = sp404(&data)
+        .args(["convert", "--dry-run", "--detect-key-bpm", "--no-detect-key-bpm", "--out"])
+        .arg(&out)
+        .arg(&pack)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+}
+
+#[test]
+fn files_not_analyzed_count_as_files_to_check() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pack = tmp.path().join("Pack");
+    fs::create_dir_all(&pack).unwrap();
+    fs::write(pack.join("broken.wav"), b"not a wav").unwrap();
+    let (out, data) = (tmp.path().join("out"), tmp.path().join("data"));
+    let output = sp404(&data).args(["convert", "--dry-run", "--detect-key-bpm", "--out"]).arg(&out).arg(&pack).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("1 files to check by ear (uncertain or not analyzed)"), "{stdout}");
 }
