@@ -12,6 +12,8 @@ Funciona no macOS e no Windows.
 - Mono continua mono, estéreo continua estéreo; arquivos com mais canais são mixados para estéreo.
 - Remove metadados, limpa nomes (ASCII), resolve nomes repetidos (`kick_2.wav`).
 - Copia capas, PDFs e textos junto. Ignora lixo do sistema (`.DS_Store`, `__MACOSX`, `._arquivo`).
+- Aceita também arquivos de áudio soltos (vão para `Samples [SP-404]` dentro da pasta de saída).
+- Opcional (desligado por padrão): detecta tom, nota, acorde e BPM e coloca no começo do nome (`Am_90_Loop`, `C_808`, `Cm7_Stab`, `90_Break`). Tudo offline; resultados incertos ficam marcados no Dry Run e no resumo.
 - Dry Run, Desfazer a última conversão, pular arquivos já convertidos, log JSON opcional.
 
 ## Usar
@@ -43,6 +45,24 @@ Linha de comando (útil para testes):
 ```bash
 cargo run -p sp404-cli -- convert --out "$HOME/Desktop/SP404" "$HOME/Samples/Meu Pack"
 ```
+
+`convert` aceita pastas e arquivos de áudio soltos. Para colocar tom e BPM nos nomes:
+
+```bash
+cargo run -p sp404-cli -- convert --detect-key-bpm --bpm-range 78-166 \
+  --out "$HOME/Desktop/SP404" "$HOME/Samples/Meu Pack" "$HOME/Samples/loop.wav"
+```
+
+`--bpm-range` aceita 58-115, 68-135, 78-166 (padrão), 88-175 ou 98-195.
+
+Detectar tipo, tom e BPM sem converter, e medir a precisão contra um gabarito:
+
+```bash
+cargo run -p sp404-cli -- analyze --ignore-names \
+  --labels gabarito.csv --report relatorio.md "$HOME/Samples/Meu Pack"
+```
+
+`--ignore-names` ignora os nomes de pastas e arquivos; `--labels` é um CSV `path,kind,label,bpm`; `--report` grava as tabelas de precisão em Markdown.
 
 As fixtures de áudio em `core/tests/fixtures` são geradas com `core/tests/fixtures/generate.sh`
 (precisa de `ffmpeg`, só em desenvolvimento).

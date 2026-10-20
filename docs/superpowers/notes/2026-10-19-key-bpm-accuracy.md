@@ -392,3 +392,5 @@ A coluna "DAYDREAMS com nomes" é a da passagem 3 e não mudou: 95/96, 32/33, 15
 - **Teste do pad de 30 s.** O comentário agora diz que o espaçamento de 7,1 s foi escolhido para não cair num número inteiro de compassos.
 
 `cargo test --workspace`: 196 testes passam, nenhum falha.
+
+Liberação aprovada pelo autor em 2026-10-19 com base nos números combinados (DAYDREAMS + Kount, só respostas conferidas); BPM só pelo som no DAYDREAMS isolado ficou em 29/33 (87,9%).

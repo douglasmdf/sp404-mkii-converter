@@ -45,8 +45,10 @@ Implementado (v0.1.0):
 - Interface em português do Brasil e inglês, seguindo o idioma do sistema. Atalhos: Cmd/Ctrl+O, Cmd/Ctrl+Enter, Cmd/Ctrl+,.
 - Instaladores: `.dmg` (Apple Silicon e Intel) e `.exe` (NSIS, instalação por usuário). Ainda sem assinatura.
 
-Planejado (pedido, ainda não feito):
-- Escanear os arquivos de áudio para detectar tom e BPM e, opcionalmente, incluir essas informações no nome do arquivo de saída — por exemplo `Bass One Shot_C`, `Melody Loop_Dmin`. Em aberto: formato exato do nome (onde entra o BPM, separadores, notação do tom), se a detecção é por arquivo ou por pasta, e o que fazer quando a detecção tiver baixa confiança.
+Implementado (próxima versão):
+- Arquivos de áudio soltos: o app e o `sp404 convert` aceitam arquivos além de pastas. Os arquivos soltos vão para uma pasta `Samples [SP-404]` dentro da pasta de saída escolhida; com arquivos soltos, a pasta de saída é sempre perguntada.
+- Tom e BPM nos nomes (opção desligada por padrão): o analisador roda totalmente offline, em Rust, e detecta tom (com bemóis), nota, acorde e BPM. A informação entra no começo do nome do arquivo de saída: `Am_90_Loop`, `C_808`, `Cm7_Stab`, `90_Break`. O BPM é dobrado ou dividido para caber na faixa escolhida (58-115, 68-135, 78-166, 88-175 ou 98-195; padrão 78-166). Quando o nome original já traz tom/BPM, essa informação é movida para o começo. Resultados incertos aparecem marcados no Dry Run e no resumo.
+- Linha de comando: `sp404 convert --detect-key-bpm --bpm-range` e `sp404 analyze` (mede a precisão contra um gabarito).
 
 Fora do escopo por enquanto: organizar samples em bancos/pads da SP-404; edição de áudio (normalizar, cortar, fades); saídas diferentes de WAV 16 bits/48 kHz.
 
