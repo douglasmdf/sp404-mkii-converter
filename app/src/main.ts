@@ -362,8 +362,11 @@ function kindOf(choice: KindChoice): SampleKind {
   }
 }
 
+// For a one-shot, "melodic" means several notes in sequence (a riff or arpeggio, named by key),
+// a sibling of single note and chord, so it reads "Phrase" there.
 function soundsFor(shape: Shape): [Sound, I18nKey][] {
-  return shape === "oneShot" ? SOUNDS : SOUNDS.filter(([sound]) => sound === "drum" || sound === "melodic");
+  if (shape === "oneShot") return SOUNDS.map(([sound, label]) => [sound, sound === "melodic" ? "soundPhrase" : label]);
+  return SOUNDS.filter(([sound]) => sound === "drum" || sound === "melodic");
 }
 
 function choiceOf(kind: SampleKind): KindChoice {
