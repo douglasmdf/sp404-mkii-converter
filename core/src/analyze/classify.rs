@@ -418,9 +418,11 @@ mod tests {
 
     #[test]
     fn long_sound_leans_to_loop_but_names_decide() {
-        // A 30 s pad whose notes come in every 7.1 s: long, pitched, no steady pulse. (Until
-        // analyzer v4 this was a chord re-struck every 3.3 s, but that is a pulse: 4 beats
-        // at 72 BPM, which the whole-bar periodicity of v5 rightly hears.)
+        // A 30 s pad whose notes come in every 7.1 s: long, pitched, no steady pulse. The
+        // spacing is chosen on purpose so it is not a whole number of bars at any tempo of the
+        // search octave (7.1 s would be 8.3 beats at 70 BPM, 16.6 at 140). Until analyzer v4
+        // this was a chord re-struck every 3.3 s, but that is a pulse: 4 beats at 72 BPM,
+        // which the whole-bar periodicity of v5 rightly hears.
         let pad = rolled_chord(&[45.0, 57.0, 60.0, 64.0, 67.0], 7.1, 30.0);
         assert!(pad.source_seconds > 25.0, "{}", pad.source_seconds);
         let alone = classify(&pad, &extract(&pad), &NameHints::default());
@@ -490,4 +492,3 @@ mod tests {
         assert!(strong.confident);
     }
 }
-

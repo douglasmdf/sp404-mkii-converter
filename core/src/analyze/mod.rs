@@ -27,7 +27,7 @@ pub const ANALYSIS_RATE: u32 = 22_050;
 /// Only the start of a file is decoded and analysed.
 pub const MAX_ANALYSIS_SECONDS: f64 = 180.0;
 /// Bumped whenever thresholds or profiles change, so logs show which analyzer named a file.
-pub const ANALYZER_VERSION: u32 = 5;
+pub const ANALYZER_VERSION: u32 = 6;
 
 /// A detected value and whether the analyzer trusts it enough to name the file with it.
 #[derive(Debug, Clone, PartialEq, Serialize)]

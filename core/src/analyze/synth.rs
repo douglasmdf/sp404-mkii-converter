@@ -55,6 +55,24 @@ pub(crate) fn rolled_chord(midis: &[f32], step: f32, seconds: f32) -> Signal {
     signal(normalized(out))
 }
 
+/// A long pad with no pulse: notes from an A-minor scale enter at irregular gaps (1.5–6 s,
+/// fixed seed) and ring for several seconds.
+pub(crate) fn drifting_pad(seconds: f32) -> Signal {
+    let scale = [45.0, 57.0, 60.0, 62.0, 64.0, 67.0, 69.0, 72.0];
+    let mut rng = Lcg(2024);
+    let mut out = vec![0.0; frames(seconds)];
+    let mut t = 0.0;
+    let mut i = 0;
+    while t < seconds - 1.0 {
+        let note = scale[i % scale.len()];
+        let len = (seconds - t).min(8.0);
+        add_at(&mut out, frames(t), &tone_samples(note, len, 4, 0.4), 0.5);
+        t += 1.5 + 2.25 * (rng.next() + 1.0);
+        i += 3;
+    }
+    signal(normalized(out))
+}
+
 /// The notes one after the other.
 pub(crate) fn arpeggio(midis: &[f32], note_seconds: f32) -> Signal {
     let samples = midis.iter().flat_map(|&m| tone_samples(m, note_seconds, 4, 3.0)).collect();

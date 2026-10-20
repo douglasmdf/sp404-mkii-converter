@@ -345,3 +345,50 @@ Os três erros de relativo nos dois packs (`Thinking Back`, `Dearly`, `Mushroom`
 - O comentário de `harmony.rs` sobre a confiança do tom agora usa a mesma base de contagem do `sp404 analyze` e destas notas.
 
 `cargo test --workspace`: 195 testes passam, nenhum falha.
+
+# Rodada de correções da passagem 3 (analisador v6)
+
+## BPM do Kount por origem do gabarito
+
+Doze BPMs do Kount foram definidos como "a v4 concorda com o tempo do projeto". São 9 linhas `agreement` e 3 `author+agreement`. Para a v4 eles são **acerto por construção**, não medem nada. Os 15 BPMs dados pelo autor (`author`) também não são uma amostra neutra: foram escolhidos justamente onde o tempo do Logic discordava. É uma amostra **enriquecida de erros**.
+
+| Linhas de BPM do Kount (sem nomes) | v4 | v5 | v6 |
+|---|---|---|---|
+| `author` (15, conferidos de ouvido) | 14/15 | 15/15 | 15/15 |
+| `agreement` (9) | 9/9 (tautológico) | 9/9 | 9/9 |
+| `author+agreement` (3; BPM por concordância) | 3/3 (tautológico) | 3/3 | 3/3 |
+
+BPM combinado sem nomes:
+
+- **Só gabarito confiável** (DAYDREAMS + Kount `author`): **44/48 (91,7%)**.
+- **Com todas as linhas:** 56/60 (93,3%).
+- **Com nomes**, nas mesmas duas bases: 47/48 (97,9%) e 59/60 (98,3%).
+
+## Tabela honesta (v6): Kount só com linhas do autor
+
+Para o Kount "só autor", as linhas `agreement` saem inteiras (tipo pelo nome e BPM por concordância). As linhas `author+agreement` mantêm tipo e tom, que são do autor, e perdem o BPM. Ficam 28 arquivos.
+
+| Medida | Meta | DAYDREAMS | Kount (autor) | Combinado (autor), sem nomes | Combinado (autor), com nomes |
+|---|---|---|---|---|---|
+| Classificação | ≥ 90% | 93/96 | 26/28 | **119/124 (96,0%)** ✅ | 121/124 (97,6%) ✅ |
+| BPM exato | ≥ 90% | 29/33 (87,9%) | 15/15 | **44/48 (91,7%)** ✅ | 47/48 (97,9%) ✅ |
+| Tom exato | ≥ 65% | 15/18 | 6/8 | **21/26 (80,8%)** ✅ | 21/26 ✅ |
+| Tom exato ou relativo | ≥ 80% | 16/18 | 8/8 | **24/26 (92,3%)** ✅ | 24/26 ✅ |
+| Nota (real) | ≥ 95% | 1/1 | 3/3 | **4/4** ✅ | 4/4 ✅ |
+| Acorde (real; meta nos sintéticos 13/13) | ≥ 70% | 3/3 | 1/1 | **4/4** ✅ | 4/4 ✅ |
+| Bateria sem prefixo | ≥ 98% | 72/72 | 13/13 | **85/85** ✅ | 85/85 ✅ |
+| Erros marcados como incertos | ≥ 60% | 6/10 | 3/4 | **9/14 (64,3%)** ✅ | 7/9 (77,8%) ✅ |
+
+A coluna "DAYDREAMS com nomes" é a da passagem 3 e não mudou: 95/96, 32/33, 15/18, 16/18, 72/72, 4/5.
+
+## Mudanças
+
+- **`POW2_AGREE` 0,5 → 0,37.** O valor antigo ficava 0,02 abaixo do único acerto conhecido. O novo fica no meio do intervalo entre:
+  - os candidatos de potência de 2 errados: até 0,22 (`Truth Sample`, 160 tempos; `Dearly Synth Loop`, 0,21);
+  - os certos: a partir de 0,52 (`Pieces Sample`).
+
+  O intervalo antes descrito como "≤ 0,02 / ≥ 0,52" estava errado: `Truth` e `Dearly` ficam em 0,21–0,22. Nas duas execuções e nos dois packs, só um arquivo muda: `Shells.wav` (DAYDREAMS, sem BPM no gabarito, sem pulso) passa de 127 para 78 BPM. Como o comportamento mudou, `ANALYZER_VERSION = 6`.
+- **Pads longos sem pulso.** Novo teste `long_pad_without_pulse_is_not_periodic`: pads de 60, 90 e 120 s, com notas entrando em intervalos irregulares, ficam com periodicidade 0,022, 0,014 e 0,019, abaixo de `PULSE_NONE` (0,06). A busca por ~100 tempos de compasso inteiro não cria pulso falso. Não foi preciso mudar o código.
+- **Teste do pad de 30 s.** O comentário agora diz que o espaçamento de 7,1 s foi escolhido para não cair num número inteiro de compassos.
+
+`cargo test --workspace`: 196 testes passam, nenhum falha.

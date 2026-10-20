@@ -31,8 +31,9 @@ const FAMILY_TOLERANCE_FRAMES: f64 = 1.0;
 /// The power-of-two-beats candidate is taken when its score reaches this share of the best
 /// score over the octave, and is confident at `POW2_CONFIDENT`. On both test packs the right
 /// power-of-two tempo scores at least 0.52 of the best (`Pieces Sample`, Kount) and the wrong
-/// one at most 0.02 (`Can't go Back`, 30 beats).
-const POW2_AGREE: f64 = 0.5;
+/// one at most 0.22 (`Truth Sample`, 160 beats; `Dearly Synth Loop`, 20 beats, 0.21; `Can't
+/// go Back`, 30 beats, 0.02); this is the midpoint of that gap.
+const POW2_AGREE: f64 = 0.37;
 const POW2_CONFIDENT: f64 = 0.75;
 /// Otherwise another whole-beat candidate is taken when it reaches this share of the best
 /// score and lies within `MAX_DRIFT` (relative) of the best grid tempo.
@@ -215,7 +216,7 @@ impl Acf {
 mod tests {
     use super::*;
     use crate::analyze::features::extract;
-    use crate::analyze::synth::{click_loop, noise_hit, with_tail};
+    use crate::analyze::synth::{click_loop, drifting_pad, noise_hit, with_tail};
     use crate::config::BpmRange;
     use crate::tags::fold_bpm;
 
@@ -251,6 +252,17 @@ mod tests {
         // 20 beats (5 bars): the power-of-two tempo of this length is 104, not 130.
         let clicks = click_loop(130.0, 20);
         assert!(periodicity(&extract(&clicks), clicks.file_seconds) > 0.3);
+    }
+
+    /// The whole-bar search tries about a hundred tempos on a two-minute sound; a sound with no
+    /// pulse must still score under the loop classifier's `PULSE_NONE` (0.06).
+    #[test]
+    fn long_pad_without_pulse_is_not_periodic() {
+        for seconds in [60.0, 90.0, 120.0] {
+            let pad = drifting_pad(seconds);
+            let p = periodicity(&extract(&pad), pad.file_seconds);
+            assert!(p < 0.06, "{seconds} s: {p}");
+        }
     }
 
     #[test]
