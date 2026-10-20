@@ -127,7 +127,7 @@ Regras:
 - **BPM com marcador** (`90bpm`, `90 BPM`, `bpm90`, `90_BPM`) é sempre aceito.
 - Parênteses e colchetes também separam palavras: `Breaks_Fly (90bpm)` → `90_Breaks_Fly`. Parênteses que ficarem vazios são removidos.
 - **Tom com marcador ou acidente** (`Am`, `A min`, `A minor`, `Amin`, `Amaj`, `A major`, `F#m`, `Gb`, `C#`) é aceito quando é uma palavra separada (por espaço, `_`, `-`, `.` ou começo/fim).
-- **Números e letras soltos são ambíguos** (`Kick 01`, `Take A`). Um número solto só é aceito como BPM, e uma letra solta (`A`–`G`) só é aceita como tom, se a análise do som concordar: o BPM detectado bate com o número (com tolerância de ±3% ou como metade/dobro), ou o tom detectado tem a mesma tônica (ou é o relativo). Quando concorda, vale o valor do nome **(decisão do designer)**.
+- **Números e letras soltos são ambíguos** (`Kick 01`, `Take A`). Um número solto só é aceito como BPM, e uma letra solta (`A`–`G`) só é aceita como tom, se a análise do som concordar: o BPM detectado bate com o número (com tolerância de ±3% ou como metade/dobro), ou o tom detectado tem a mesma tônica (ou é o relativo). Quando concorda, vale o valor do nome **(decisão do designer)**. `Am` e `Ab` escritos exatamente assim também são palavras em inglês ("I Am Legend", "Ab Workout") e contam como tom solto: só valem se o som concordar (mesmo tom ou relativo); `A min`, `Amin`, `A minor` continuam marcados.
 - O token reconhecido é removido do nome junto com separadores que sobrarem, e o resto segue as regras de 4.3.
 - Sustenidos do nome viram bemóis (`F#m` → `Gbm`). Tons escritos como menor/maior por extenso viram a notação curta.
 

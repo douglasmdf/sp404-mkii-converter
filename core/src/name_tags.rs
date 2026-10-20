@@ -10,8 +10,10 @@ pub struct Span {
     pub end: usize,
 }
 
-/// What was found in a stem. Marked tokens (`90bpm`, `Am`, `Cmaj7`) are trusted; the
-/// `bare_*` fields are only hints that need audio agreement before use.
+/// What was found in a stem. Marked tokens (`90bpm`, `F#m`, `Cmaj7`) are trusted; the
+/// `bare_*` fields are only hints that need audio agreement before use. `Am` and `Ab` are
+/// English words too ("I Am Legend", "Ab Workout"), so written exactly like that they are
+/// only a `bare_key`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct NameTokens {
     pub key: Option<(Key, Vec<Span>)>,
@@ -19,7 +21,11 @@ pub struct NameTokens {
     pub bpm: Option<(f32, Vec<Span>)>,
     pub bare_bpm: Option<(f32, Span)>,
     pub bare_letter: Option<(PitchClass, Span)>,
+    pub bare_key: Option<(Key, Span)>,
 }
+
+/// Key words that are also common English words.
+const WORD_LIKE_KEYS: &[&str] = &["Am", "Ab"];
 
 fn is_separator(c: char) -> bool {
     matches!(c, ' ' | '_' | '-' | '.' | ',' | '(' | ')' | '[' | ']')
@@ -163,6 +169,10 @@ pub fn parse_name(stem: &str) -> NameTokens {
             used[i] = true;
             continue;
         }
+        if WORD_LIKE_KEYS.contains(&w.text) {
+            // Left for the bare pass below.
+            continue;
+        }
         if let Some(key) = parse_key_word(w.text) {
             out.key = Some((key, vec![w.span()]));
             used[i] = true;
@@ -191,6 +201,8 @@ pub fn parse_name(stem: &str) -> NameTokens {
         }
         if let Some(n) = all_digits(w.text, 2, 3).filter(|n| (50..=250).contains(n)) {
             out.bare_bpm = Some((n as f32, w.span()));
+        } else if WORD_LIKE_KEYS.contains(&w.text) {
+            out.bare_key = parse_key_word(w.text).map(|key| (key, w.span()));
         } else {
             let mut chars = w.text.chars();
             if let (Some(l), None) = (chars.next(), chars.next()) {
@@ -352,7 +364,7 @@ mod tests {
 
     #[test]
     fn remove_spans_cleans_separators() {
-        let stem = "Loop (90bpm) [Am]";
+        let stem = "Loop (90bpm) [Dm]";
         let t = parse_name(stem);
         assert_eq!(remove_spans(stem, &all_spans(&t)), "Loop");
         let whole = [Span { start: 0, end: 5 }];
@@ -383,5 +395,23 @@ mod tests {
         check("Bb", Some("Bb"), None, None, "");
         check("Piano C#m7", None, Some("Dbm7"), None, "Piano");
         assert!(parse_name("Loop AM").key.is_none());
+    }
+
+    #[test]
+    fn english_words_am_and_ab_are_only_bare_keys() {
+        // "Am" and "Ab" are also English words: hints that need the audio to agree.
+        let t = parse_name("I Am Legend 90bpm");
+        assert!(t.key.is_none());
+        assert_eq!(t.bpm.as_ref().map(|(b, _)| *b), Some(90.0));
+        assert_eq!(t.bare_key.as_ref().map(|(k, _)| k.label()).as_deref(), Some("Am"));
+        let t = parse_name("Ab Workout Loop");
+        assert!(t.key.is_none());
+        assert_eq!(t.bare_key.as_ref().map(|(k, _)| k.label()).as_deref(), Some("Ab"));
+        // With a separate minor/major marker, or another spelling, the key stays marked.
+        for (stem, label) in [("Loop A min", "Am"), ("Loop Amin", "Am"), ("Loop A minor", "Am"), ("Loop Abm", "Abm"), ("Loop G#", "Ab")] {
+            let t = parse_name(stem);
+            assert_eq!(t.key.as_ref().map(|(k, _)| k.label()).as_deref(), Some(label), "{stem:?}");
+            assert!(t.bare_key.is_none(), "{stem:?}");
+        }
     }
 }

@@ -210,9 +210,9 @@ mod tests {
     #[test]
     fn hints_from_path() {
         let dirs = vec!["Lo-Fi Pack".to_string(), "One Shots".to_string(), "Hi-Hats".to_string()];
-        let stem = "Closed Hat01 Am";
+        let stem = "Closed Hat01 Dm";
         let hints = NameHints::from_path(&dirs, stem, &parse_name(stem));
-        assert_eq!(hints.words, ["lo", "fi", "pack", "oneshot", "hi", "hats", "closed", "hat", "01", "am"]);
+        assert_eq!(hints.words, ["lo", "fi", "pack", "oneshot", "hi", "hats", "closed", "hat", "01", "dm"]);
         assert!(hints.has_key_token && !hints.has_bpm_token);
         assert!(hints.has_word("one shot") && hints.has_word("One-Shot") && hints.has_word("hat"));
         assert!(!hints.has_word("hi-hat"));

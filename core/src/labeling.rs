@@ -104,7 +104,8 @@ pub fn resolve(detection: &Detection, tokens: &NameTokens, range: BpmRange) -> (
     (analysis, spans)
 }
 
-/// A marked key gives its tonic; a bare letter counts when it is the detected note.
+/// A marked key gives its tonic; a bare letter or bare key (`Ab`) counts when it is the
+/// detected note.
 fn note_label(detection: &Detection, tokens: &NameTokens) -> Option<Pick<String>> {
     if let Some((key, spans)) = &tokens.key {
         return Some(Pick::named(key.tonic.name().to_string(), spans.clone()));
@@ -113,28 +114,44 @@ fn note_label(detection: &Detection, tokens: &NameTokens) -> Option<Pick<String>
     if let Some((letter, span)) = tokens.bare_letter.filter(|(l, _)| *l == detected.value) {
         return Some(Pick::named(letter.name().to_string(), vec![span]));
     }
+    if let Some((key, span)) = tokens.bare_key.filter(|(k, _)| k.tonic == detected.value) {
+        return Some(Pick::named(key.tonic.name().to_string(), vec![span]));
+    }
     Some(Pick::detected(detected, |n: &PitchClass| n.name().to_string()))
 }
 
-/// A marked chord as written, or a marked key as its triad (`Am` → chord `Am`).
+/// A marked chord as written, or a marked key as its triad (`F#m` → chord `Gbm`); a bare key
+/// (`Am`) only when it is the detected triad.
 fn chord_label(detection: &Detection, tokens: &NameTokens) -> Option<Pick<String>> {
     if let Some((chord, spans)) = &tokens.chord {
         return Some(Pick::named(chord.label(), spans.clone()));
     }
     if let Some((key, spans)) = &tokens.key {
-        let quality = if key.minor { ChordQuality::Minor } else { ChordQuality::Major };
-        return Some(Pick::named(Chord { root: key.tonic, quality }.label(), spans.clone()));
+        return Some(Pick::named(triad(key).label(), spans.clone()));
     }
-    detection.chord.as_ref().map(|c| Pick::detected(c, Chord::label))
+    let detected = detection.chord.as_ref()?;
+    if let Some((key, span)) = tokens.bare_key.filter(|(k, _)| triad(k) == detected.value) {
+        return Some(Pick::named(triad(&key).label(), vec![span]));
+    }
+    Some(Pick::detected(detected, Chord::label))
 }
 
-/// A marked key; or a bare letter that is the tonic of the detected key (label = that key)
+fn triad(key: &Key) -> Chord {
+    let quality = if key.minor { ChordQuality::Minor } else { ChordQuality::Major };
+    Chord { root: key.tonic, quality }
+}
+
+/// A marked key; or a bare key (`Am`) that is the detected key or its relative (label = the
+/// name's key); or a bare letter that is the tonic of the detected key (label = that key)
 /// or of its relative (label = the relative); else the detected key.
 fn key_label(detection: &Detection, tokens: &NameTokens) -> Option<Pick<String>> {
     if let Some((key, spans)) = &tokens.key {
         return Some(Pick::named(key.label(), spans.clone()));
     }
     let detected = detection.key.as_ref()?;
+    if let Some((key, span)) = tokens.bare_key.filter(|(k, _)| *k == detected.value || *k == detected.value.relative()) {
+        return Some(Pick::named(key.label(), vec![span]));
+    }
     if let Some((letter, span)) = tokens.bare_letter {
         let matching = [detected.value, detected.value.relative()].into_iter().find(|k: &Key| k.tonic == letter);
         if let Some(key) = matching {
@@ -254,7 +271,7 @@ mod tests {
         let note = Detection { note: sure(PitchClass(5)), ..detection(SampleKind::Note) };
         assert_eq!(prefix_of(&note, "808 C#").as_deref(), Some("Db"));
         let chord = Detection { chord: sure(Chord { root: PitchClass(0), quality: ChordQuality::Major }), ..detection(SampleKind::Chord) };
-        assert_eq!(prefix_of(&chord, "Stab Am").as_deref(), Some("Am"));
+        assert_eq!(prefix_of(&chord, "Stab A min").as_deref(), Some("Am"));
         assert_eq!(prefix_of(&chord, "Stab Cmaj7").as_deref(), Some("Cmaj7"));
     }
 
@@ -284,6 +301,32 @@ mod tests {
         assert_eq!(label_of("C"), (Some("Am".to_string()), true, 1));
         assert_eq!(label_of("Am"), (Some("Am".to_string()), true, 1));
         assert_eq!(label_of("Eb"), (Some("Eb".to_string()), false, 0));
+    }
+
+    #[test]
+    fn bare_am_and_ab_need_audio_agreement() {
+        let label = |d: &Detection, stem: &str| {
+            let (a, spans) = resolve(d, &parse_name(stem), RANGE);
+            (a.label, a.label_from_name, crate::name_tags::remove_spans(stem, &spans))
+        };
+        let am = loop_detection(SampleKind::MelodicLoop, "Am", 90.0);
+        assert_eq!(label(&am, "Loop Am 90bpm"), (Some("Am".to_string()), true, "Loop".to_string()));
+        // The relative major agrees too; the name's spelling of the key is kept.
+        let c = loop_detection(SampleKind::MelodicLoop, "C", 90.0);
+        assert_eq!(label(&c, "Loop Am 90bpm"), (Some("Am".to_string()), true, "Loop".to_string()));
+        // Otherwise the word is just a word.
+        let eb = loop_detection(SampleKind::MelodicLoop, "Eb", 90.0);
+        assert_eq!(label(&eb, "I Am Legend 90bpm"), (Some("Eb".to_string()), false, "I Am Legend".to_string()));
+        assert_eq!(label(&eb, "Ab Workout Loop"), (Some("Eb".to_string()), false, "Ab Workout Loop".to_string()));
+        let ab = loop_detection(SampleKind::MelodicLoop, "Ab", 90.0);
+        assert_eq!(label(&ab, "Ab Workout Loop"), (Some("Ab".to_string()), true, "Workout Loop".to_string()));
+
+        let note = |n: u8| Detection { note: sure(PitchClass(n)), ..detection(SampleKind::Note) };
+        assert_eq!(prefix_of(&note(8), "Ab Bass").as_deref(), Some("Ab"));
+        assert_eq!(label(&note(0), "Ab Bass").2, "Ab Bass");
+        let chord = |root: u8, quality| Detection { chord: sure(Chord { root: PitchClass(root), quality }), ..detection(SampleKind::Chord) };
+        assert_eq!(prefix_of(&chord(9, ChordQuality::Minor), "Stab Am").as_deref(), Some("Am"));
+        assert_eq!(label(&chord(0, ChordQuality::Major), "Stab Am"), (Some("C".to_string()), false, "Stab Am".to_string()));
     }
 
     #[test]
